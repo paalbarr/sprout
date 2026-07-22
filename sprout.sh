@@ -194,11 +194,21 @@ set -euo pipefail
 #
 # ==============================================================================
 
+detect_lan_ip() {
+  if command -v ip >/dev/null 2>&1; then
+    ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1
+  elif command -v ifconfig >/dev/null 2>&1; then
+    ifconfig | awk '/inet / && $2 !~ /^127\./ {print $2; exit}'
+  else
+    echo "127.0.0.1"
+  fi
+}
+
 STACK_DIR="${STACK_DIR:-openclaw-stack}"
 TZ_VALUE="${TZ_VALUE:-America/Santiago}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-8080}"
 TS_HOSTNAME="${TS_HOSTNAME:-openclaw-docker}"
-LAN_IP="${LAN_IP:-192.168.1.100}"
+LAN_IP="${LAN_IP:-$(detect_lan_ip)}"
 TAILSCALE_IP="${TAILSCALE_IP:-100.x.x.x}"
 DOCKER_NETWORK_NAME="${DOCKER_NETWORK_NAME:-openclaw_net}"
 DOCKER_SUBNET="${DOCKER_SUBNET:-172.30.10.0/24}"
@@ -207,8 +217,8 @@ OPENCLAW_FIXED_IP="${OPENCLAW_FIXED_IP:-172.30.10.20}"
 REDIS_FIXED_IP="${REDIS_FIXED_IP:-172.30.10.30}"
 
 # Placeholder token only. Replace in .env before starting.
-DEFAULT_OPENCLAW_GATEWAY_TOKEN="CHANGE_THIS_LONG_SECURE_TOKEN"
-DEFAULT_TS_AUTHKEY="tskey-auth-xxxxxxxxxxxxxxxx"
+DEFAULT_OPENCLAW_GATEWAY_TOKEN="GzOVAq118GIkIVH7mgyQl/WezX0gSlpjo6C4JiUzl1MdDFtlMs2kzYcQvDdFiUVt"
+DEFAULT_TS_AUTHKEY="tskey-auth-ksjYVR4Rub11CNTRL-gcSrcvn9UwY41rZnwL9vvYK2ZyiygWid"
 
 echo "[i] Creating OpenClaw Docker environment in: $STACK_DIR"
 

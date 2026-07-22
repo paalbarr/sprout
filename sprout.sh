@@ -12,6 +12,19 @@ set -euo pipefail
 #   - Tailscale container
 #   - Watchtower
 #
+# This version includes fixes for:
+#
+#   Proxy headers detected from untrusted address.
+#   Connection will not be treated as local.
+#   Configure gateway.trustedProxies to restore local client detection behind your proxy.
+#
+# The fix is implemented by:
+#   1) Creating an explicit OpenClaw config file: openclaw-config/openclaw.json
+#   2) Configuring gateway.trustedProxies
+#   3) Using a fixed Docker bridge subnet and a fixed Nginx container IP
+#   4) Mounting the config file into the OpenClaw container
+#   5) Sending proper proxy headers from Nginx
+#
 # ==============================================================================
 #
 # USAGE
@@ -29,22 +42,34 @@ set -euo pipefail
 #
 #      nano openclaw-stack/.env
 #
-# 4) Start environment:
+# 4) Review OpenClaw gateway config:
+#
+#      nano openclaw-stack/openclaw-config/openclaw.json
+#
+# 5) Start environment:
 #
 #      cd openclaw-stack
 #      ./start.sh
 #
-# 5) View logs:
+# 6) View logs:
 #
 #      ./logs.sh
 #
-# 6) Validate health:
+# 7) Validate health:
 #
 #      ./health.sh
 #
-# 7) Stop environment:
+# 8) If OpenClaw still reports an untrusted proxy, inspect Nginx IP:
 #
-#      ./stop.sh
+#      ./inspect-nginx-ip.sh
+#
+#    Then add that exact IP to:
+#
+#      openclaw-config/openclaw.json -> gateway.trustedProxies
+#
+#    Restart:
+#
+#      ./restart.sh
 #
 # ------------------------------------------------------------------------------
 # USAGE EXAMPLES
@@ -66,19 +91,31 @@ set -euo pipefail
 #
 #   TS_HOSTNAME=openclaw-rpi5 ./sprout.sh
 #
+# Change Docker subnet:
+#
+#   DOCKER_SUBNET=172.31.10.0/24 ./sprout.sh
+#
+# Change fixed Nginx IP:
+#
+#   NGINX_FIXED_IP=172.31.10.10 ./sprout.sh
+#
+# Add LAN and Tailscale origins:
+#
+#   LAN_IP=192.168.1.50 TAILSCALE_IP=100.101.102.103 ./sprout.sh
+#
 # ------------------------------------------------------------------------------
 # PLATFORM PORTABILITY
 # ------------------------------------------------------------------------------
 #
 # 1) macOS
 #    - Requires Docker Desktop.
-#    - Run from Terminal, iTerm or VSCode terminal.
+#    - Run from Terminal, iTerm or VS Code terminal.
 #    - Typical path:
 #
 #         ~/openclaw-stack
 #
 #    - Port 8080 is usually available.
-#    - Tailscale may also run natively if Docker networking causes issues.
+#    - Tailscale runs in container mode for portability.
 #
 # 2) Windows
 #    - Recommended: WSL2 Ubuntu.
@@ -130,21 +167,30 @@ set -euo pipefail
 # TS_HOSTNAME:
 #   Tailscale node hostname.
 #
+# LAN_IP:
+#   Optional LAN IP included in gateway.controlUi.allowedOrigins.
+#
+# TAILSCALE_IP:
+#   Optional Tailscale IP included in gateway.controlUi.allowedOrigins.
+#
+# DOCKER_NETWORK_NAME:
+#   Docker bridge network name.
+#
+# DOCKER_SUBNET:
+#   Docker bridge subnet. Change if it conflicts with your LAN/VPN.
+#
+# NGINX_FIXED_IP:
+#   Fixed Nginx container IP. Must belong to DOCKER_SUBNET.
+#   This IP is added to gateway.trustedProxies.
+#
 # Relative paths:
 #
 #   ./openclaw-data
 #   ./redis-data
 #   ./tailscale
+#   ./openclaw-config
 #
 # are intentionally used for platform portability.
-#
-# Tailscale:
-#
-#   TS_USERSPACE=true improves compatibility across:
-#     - macOS Docker Desktop
-#     - WSL2
-#     - Linux
-#     - Raspberry Pi
 #
 # ==============================================================================
 
@@ -152,48 +198,100 @@ STACK_DIR="${STACK_DIR:-openclaw-stack}"
 TZ_VALUE="${TZ_VALUE:-America/Santiago}"
 OPENCLAW_PORT="${OPENCLAW_PORT:-8080}"
 TS_HOSTNAME="${TS_HOSTNAME:-openclaw-docker}"
+LAN_IP="${LAN_IP:-192.168.1.100}"
+TAILSCALE_IP="${TAILSCALE_IP:-100.x.x.x}"
+DOCKER_NETWORK_NAME="${DOCKER_NETWORK_NAME:-openclaw_net}"
+DOCKER_SUBNET="${DOCKER_SUBNET:-172.30.10.0/24}"
+NGINX_FIXED_IP="${NGINX_FIXED_IP:-172.30.10.10}"
+OPENCLAW_FIXED_IP="${OPENCLAW_FIXED_IP:-172.30.10.20}"
+REDIS_FIXED_IP="${REDIS_FIXED_IP:-172.30.10.30}"
+
+# Placeholder token only. Replace in .env before starting.
+DEFAULT_OPENCLAW_GATEWAY_TOKEN="CHANGE_THIS_LONG_SECURE_TOKEN"
+DEFAULT_TS_AUTHKEY="tskey-auth-xxxxxxxxxxxxxxxx"
 
 echo "[i] Creating OpenClaw Docker environment in: $STACK_DIR"
 
-mkdir -p "$STACK_DIR"/{nginx,openclaw-data,redis-data,tailscale}
+mkdir -p "$STACK_DIR"/{nginx,openclaw-data,redis-data,tailscale,openclaw-config}
 cd "$STACK_DIR"
 
+# ------------------------------------------------------------------------------
+# .env
+# ------------------------------------------------------------------------------
+
 if [[ ! -f ".env" ]]; then
-  cat > .env <<EOF
+  cat > .env <<EOF_ENV
 # ==============================================================================
 # OpenClaw Stack Environment Variables
 # ==============================================================================
 
 TZ=${TZ_VALUE}
 
-# IF YOU WANT, CHANGE BEFORE STARTING
-# YOU CAN CREATE A NEW TOKEN USING openssl rand -base64 48
-OPENCLAW_GATEWAY_TOKEN=GzOVAq118GIkIVH7mgyQl/WezX0gSlpjo6C4JiUzl1MdDFtlMs2kzYcQvDdFiUVt
+# CHANGE BEFORE STARTING
+# Generate a new token with:
+#   openssl rand -base64 48
+OPENCLAW_GATEWAY_TOKEN=${DEFAULT_OPENCLAW_GATEWAY_TOKEN}
 
 # CHANGE BEFORE STARTING
-# YOU CAN CREATE A NEW KEY HERE https://login.tailscale.com/admin/settings/keys
-TS_AUTHKEY=tskey-auth-ksjYVR4Rub11CNTRL-gcSrcvn9UwY41rZnwL9vvYK2ZyiygWid
+# Create a Tailscale auth key at:
+#   https://login.tailscale.com/admin/settings/keys
+TS_AUTHKEY=${DEFAULT_TS_AUTHKEY}
 
 TS_HOSTNAME=${TS_HOSTNAME}
-EOF
+EOF_ENV
   echo "[✓] .env file created"
 else
   echo "[i] Existing .env detected, skipping overwrite"
 fi
 
-cat > nginx/openclaw.conf <<'EOF'
+# ------------------------------------------------------------------------------
+# OpenClaw explicit config: trusted proxies + allowed origins
+# ------------------------------------------------------------------------------
+
+cat > openclaw-config/openclaw.json <<EOF_JSON
+{
+  "gateway": {
+    "bind": "lan",
+    "port": 18789,
+
+    "trustedProxies": [
+      "127.0.0.1",
+      "::1",
+      "${NGINX_FIXED_IP}",
+      "10.0.0.0/8",
+      "172.16.0.0/12",
+      "192.168.0.0/16"
+    ],
+
+    "controlUi": {
+      "dangerouslyAllowHostHeaderOriginFallback": true,
+      "allowedOrigins": [
+        "http://localhost:${OPENCLAW_PORT}",
+        "http://127.0.0.1:${OPENCLAW_PORT}",
+        "http://${TS_HOSTNAME}:${OPENCLAW_PORT}",
+        "http://openclaw-docker:${OPENCLAW_PORT}",
+        "http://${LAN_IP}:${OPENCLAW_PORT}",
+        "http://${TAILSCALE_IP}:${OPENCLAW_PORT}"
+      ]
+    }
+  }
+}
+EOF_JSON
+
+echo "[✓] OpenClaw config created: openclaw-config/openclaw.json"
+
+# ------------------------------------------------------------------------------
+# Nginx reverse proxy
+# ------------------------------------------------------------------------------
+
+cat > nginx/openclaw.conf <<'EOF_NGINX'
 # ==============================================================================
 # Nginx Reverse Proxy Configuration for OpenClaw
 # ------------------------------------------------------------------------------
-# Portability notes:
+# Important for OpenClaw local client detection:
 #
-# - Uses Docker Compose service names.
-# - Avoids absolute paths.
-# - Works across:
-#     - macOS
-#     - Windows WSL2
-#     - Raspberry Pi
-#     - Ubuntu Server
+# OpenClaw validates proxy headers. Therefore Nginx must be listed in
+# gateway.trustedProxies in openclaw-config/openclaw.json.
 # ==============================================================================
 
 server {
@@ -209,7 +307,10 @@ server {
 
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
         proxy_set_header X-Forwarded-Proto $scheme;
 
         proxy_set_header Upgrade $http_upgrade;
@@ -224,34 +325,20 @@ server {
         proxy_pass http://openclaw:18789/readyz;
     }
 }
-EOF
+EOF_NGINX
 
 echo "[✓] Nginx configuration created"
 
-cat > docker-compose.yml <<EOF
+# ------------------------------------------------------------------------------
+# Docker Compose
+# ------------------------------------------------------------------------------
+
+cat > docker-compose.yml <<EOF_COMPOSE
 # ==============================================================================
 # OpenClaw Portable Docker Compose Stack
 # ------------------------------------------------------------------------------
-# Designed for:
-#
-#   - macOS Docker Desktop
-#   - Windows WSL2 + Docker Desktop
-#   - Raspberry Pi OS Lite 64-bit
-#   - Ubuntu Server
-#
-# Portability considerations:
-#
-# 1) Relative paths improve migration between platforms.
-#
-# 2) host networking is intentionally avoided because:
-#      - Docker Desktop behaves differently from Linux
-#      - portability would be reduced
-#
-# 3) Tailscale uses userspace networking for compatibility.
-#
-# 4) Nginx publishes configurable HTTP port.
-#
-# 5) ARM64 support is required for Raspberry Pi.
+# Includes a fixed Docker bridge network so Nginx always has a known IP address.
+# That IP is added to gateway.trustedProxies in openclaw-config/openclaw.json.
 # ==============================================================================
 
 services:
@@ -269,6 +356,10 @@ services:
     volumes:
       - ./redis-data:/data
 
+    networks:
+      openclaw_net:
+        ipv4_address: ${REDIS_FIXED_IP}
+
   openclaw:
     image: ghcr.io/openclaw/openclaw:latest
     container_name: openclaw
@@ -284,21 +375,26 @@ services:
       HOST: 0.0.0.0
       PORT: 18789
 
-      # Allow Control UI access from any origin.
-      # Useful for portable deployments across macOS, Windows, Raspberry Pi,
-      # Ubuntu Server, LAN IPs and Tailscale IPs.
+      # These are kept as fallback environment values.
+      # The canonical config is mounted from ./openclaw-config/openclaw.json.
       gateway.bind: "lan"
+      gateway.trustedProxies: '["127.0.0.1","::1","${NGINX_FIXED_IP}","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]'
       gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback: "true"
-      gateway.controlUi.allowedOrigins: '["http://localhost:8080","http://127.0.0.1:8080","http://openclaw-docker:8080"]'
+      gateway.controlUi.allowedOrigins: '["http://localhost:${OPENCLAW_PORT}","http://127.0.0.1:${OPENCLAW_PORT}","http://${TS_HOSTNAME}:${OPENCLAW_PORT}","http://openclaw-docker:${OPENCLAW_PORT}","http://${LAN_IP}:${OPENCLAW_PORT}","http://${TAILSCALE_IP}:${OPENCLAW_PORT}"]'
 
     volumes:
       - ./openclaw-data:/home/node/.openclaw
+      - ./openclaw-config/openclaw.json:/home/node/.openclaw/openclaw.json:ro
 
     depends_on:
       - redis
 
     expose:
       - "18789"
+
+    networks:
+      openclaw_net:
+        ipv4_address: ${OPENCLAW_FIXED_IP}
 
   nginx:
     image: nginx:alpine
@@ -313,6 +409,10 @@ services:
 
     ports:
       - "${OPENCLAW_PORT}:80"
+
+    networks:
+      openclaw_net:
+        ipv4_address: ${NGINX_FIXED_IP}
 
   tailscale:
     image: tailscale/tailscale:latest
@@ -333,6 +433,9 @@ services:
     depends_on:
       - nginx
 
+    networks:
+      - openclaw_net
+
   watchtower:
     image: containrrr/watchtower
     container_name: openclaw-watchtower
@@ -345,37 +448,80 @@ services:
       - --cleanup
       - --schedule
       - "0 0 4 * * *"
-EOF
+
+    networks:
+      - openclaw_net
+
+networks:
+  openclaw_net:
+    name: ${DOCKER_NETWORK_NAME}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET}
+EOF_COMPOSE
 
 echo "[✓] docker-compose.yml created"
 
-cat > start.sh <<'EOF'
+# ------------------------------------------------------------------------------
+# Helper scripts
+# ------------------------------------------------------------------------------
+
+cat > start.sh <<'EOF_START'
 #!/usr/bin/env bash
 set -euo pipefail
 
 docker compose pull
 docker compose up -d
 docker compose ps
-EOF
+EOF_START
 chmod +x start.sh
 
-cat > stop.sh <<'EOF'
+cat > stop.sh <<'EOF_STOP'
 #!/usr/bin/env bash
 set -euo pipefail
 
 docker compose down
-EOF
+EOF_STOP
 chmod +x stop.sh
 
-cat > logs.sh <<'EOF'
+cat > restart.sh <<'EOF_RESTART'
+#!/usr/bin/env bash
+set -euo pipefail
+
+docker compose down
+docker compose up -d
+docker compose ps
+EOF_RESTART
+chmod +x restart.sh
+
+cat > recreate.sh <<'EOF_RECREATE'
+#!/usr/bin/env bash
+set -euo pipefail
+
+docker compose down --remove-orphans
+docker compose up -d --force-recreate
+docker compose ps
+EOF_RECREATE
+chmod +x recreate.sh
+
+cat > logs.sh <<'EOF_LOGS'
 #!/usr/bin/env bash
 set -euo pipefail
 
 docker compose logs -f
-EOF
+EOF_LOGS
 chmod +x logs.sh
 
-cat > health.sh <<EOF
+cat > logs-openclaw.sh <<'EOF_LOGS_OPENCLAW'
+#!/usr/bin/env bash
+set -euo pipefail
+
+docker compose logs -f openclaw
+EOF_LOGS_OPENCLAW
+chmod +x logs-openclaw.sh
+
+cat > health.sh <<EOF_HEALTH
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -386,10 +532,31 @@ echo
 echo "[i] Readiness:"
 curl -fsS http://localhost:${OPENCLAW_PORT}/readyz || true
 echo
-EOF
+EOF_HEALTH
 chmod +x health.sh
 
-cat > README.txt <<EOF
+cat > inspect-nginx-ip.sh <<'EOF_INSPECT_NGINX'
+#!/usr/bin/env bash
+set -euo pipefail
+
+docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' openclaw-nginx
+EOF_INSPECT_NGINX
+chmod +x inspect-nginx-ip.sh
+
+cat > verify-config.sh <<'EOF_VERIFY_CONFIG'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[i] OpenClaw mounted config inside container:"
+docker compose exec openclaw sh -lc 'ls -l /home/node/.openclaw/openclaw.json && cat /home/node/.openclaw/openclaw.json' || true
+
+echo
+echo "[i] Nginx container IP:"
+docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' openclaw-nginx || true
+EOF_VERIFY_CONFIG
+chmod +x verify-config.sh
+
+cat > README.txt <<EOF_README
 OpenClaw Portable Docker Environment
 
 Supported platforms:
@@ -402,6 +569,8 @@ Before starting:
   1) Edit .env
   2) Replace OPENCLAW_GATEWAY_TOKEN
   3) Replace TS_AUTHKEY with a valid Tailscale auth key
+  4) Review openclaw-config/openclaw.json
+  5) Adjust gateway.controlUi.allowedOrigins if needed
 
 Commands:
 
@@ -411,11 +580,26 @@ Commands:
   ./stop.sh
       Stop stack
 
+  ./restart.sh
+      Restart stack
+
+  ./recreate.sh
+      Force recreate containers
+
   ./logs.sh
-      Follow logs
+      Follow all logs
+
+  ./logs-openclaw.sh
+      Follow OpenClaw logs only
 
   ./health.sh
       Validate health endpoints
+
+  ./inspect-nginx-ip.sh
+      Show Nginx container IP
+
+  ./verify-config.sh
+      Verify that openclaw.json is mounted inside the OpenClaw container
 
 URLs:
 
@@ -428,20 +612,74 @@ URLs:
   Readiness:
       http://localhost:${OPENCLAW_PORT}/readyz
 
-Portability Notes:
+Trusted proxy fix:
 
-  - Use WSL2 on Windows.
-  - Use 64-bit OS on Raspberry Pi.
-  - Use Docker Desktop on macOS.
-  - Relative paths are intentionally used.
-  - Tailscale runs in container mode for portability.
-EOF
+  This stack assigns Nginx a fixed Docker IP:
+
+      ${NGINX_FIXED_IP}
+
+  That IP is included in:
+
+      openclaw-config/openclaw.json
+      gateway.trustedProxies
+
+  This is intended to fix:
+
+      Proxy headers detected from untrusted address.
+      Connection will not be treated as local.
+      Configure gateway.trustedProxies to restore local client detection behind your proxy.
+
+If the error persists:
+
+  1) Check the actual Nginx container IP:
+
+       ./inspect-nginx-ip.sh
+
+  2) Add that IP to:
+
+       openclaw-config/openclaw.json -> gateway.trustedProxies
+
+  3) Force recreate:
+
+       ./recreate.sh
+
+Origin troubleshooting:
+
+  Error:
+      origin not allowed
+
+  Fix:
+      Add the exact browser Origin to:
+
+        openclaw-config/openclaw.json
+        gateway.controlUi.allowedOrigins
+
+  Examples:
+      http://localhost:${OPENCLAW_PORT}
+      http://127.0.0.1:${OPENCLAW_PORT}
+      http://192.168.1.50:${OPENCLAW_PORT}
+      http://100.x.x.x:${OPENCLAW_PORT}
+
+Network portability:
+
+  Default Docker subnet:
+      ${DOCKER_SUBNET}
+
+  If it conflicts with your LAN/VPN, regenerate with:
+
+      DOCKER_SUBNET=172.31.10.0/24 NGINX_FIXED_IP=172.31.10.10 OPENCLAW_FIXED_IP=172.31.10.20 REDIS_FIXED_IP=172.31.10.30 ./sprout.sh
+EOF_README
 
 echo "[✓] Environment generated successfully"
 echo
-echo "[!] Edit:"
+echo "[!] Edit before starting:"
 echo "    $STACK_DIR/.env"
+echo "    $STACK_DIR/openclaw-config/openclaw.json"
 echo
 echo "[i] Start with:"
 echo "    cd $STACK_DIR"
 echo "    ./start.sh"
+echo
+echo "[i] If the trusted proxy error persists, run:"
+echo "    ./inspect-nginx-ip.sh"
+echo "    ./verify-config.sh"

@@ -2,7 +2,6 @@
   <img src="sprout-logo.png" alt="Sprout Logo" width="200"/>
 </p>
 
-<h1 align="center">Sprout</h1>
 <p align="center">
   <strong>Local AI stack for ARM and x86 environments</strong>
 </p>

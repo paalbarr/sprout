@@ -14,16 +14,16 @@
 
 <p align="center">
   <img alt="GitHub Tag" src="https://img.shields.io/github/v/tag/paalbarr/sprout.svg" alt="Release"/>
-  <img src="https://img.shields.io/badge/License-apache-2.svg" alt="License"/>
+  <img src="https://img.shields.io/badge/License-Apache-2.svg" alt="License"/>
   <img alt="Static Badge" src="https://img.shields.io/badge/ARM_x86-Ready-red.svg">
-  <img src="https://img.shields.io/badge/Docker-ready-blue.svg" alt="Docker"/>
+  <img src="https://img.shields.io/badge/Docker-Ready-blue.svg" alt="Docker"/>
   <img alt="Static Badge" src="https://img.shields.io/badge/OpenClaw-Ready-green.svg" alt="OpenClaw"/>
 
 </p>
 
 ---
 
-## ✨ Sprout?... What is that?
+# ✨ Sprout?... What is that?
 
 **Sprout** is a free, open-source, lightweight deployment toolkit for Local AI. Set up your environment quickly and safely.
 
@@ -36,23 +36,274 @@ Built on a **modular, plug-and-play architecture**, Sprout enables one-command d
 | 🧩 **Official Components**           | Only official images for security and realiability                     |
 | 🏎 **Lightweight and Optimized**     | Configured to operate with minimal resources in a personal environment |
 
+ℹ️ **Release status:**
+
+First public **alpha** release of Sprout.
+
+This version provides a portable environment for ARM and x86 platforms. It is intended for evaluation, testing, and early adopters.
+
+---
+# 🚀 Quick Start
+
+Sprout bootstraps a complete local OpenClaw environment in just a few minutes.
+
+It generates a ready-to-run Docker Compose stack including:
+
+- OpenClaw
+- Redis
+- Nginx
+- Tailscale
+
+No manual Docker Compose editing is required.
+
 ---
 
-## 🎯 Architecture
+### Supported platforms
 
-TODO
+Sprout has been designed for both ARM and x86 architectures.
+
+| Platform | Status |
+|----------|--------|
+| Raspberry Pi 4 (4 GB+) | ✅ Recommended |
+| Raspberry Pi 5 | ✅ Recommended |
+| Intel NUC | ✅ Supported |
+| Mini PC (Intel/AMD) | ✅ Supported |
+| macOS (Apple Silicon) | ✅ Supported |
+| macOS (Intel) | ✅ Supported |
+| WSL2 | ✅ Supported |
 
 ---
 
-## 🚀 Quick Start
+### Minimum hardware
 
-TODO
+Recommended minimum:
+
+- 4 CPU cores
+- 4 GB RAM
+- 10 GB free disk space
+
+Recommended for LLM usage:
+
+- 8 GB RAM or more
+- SSD storage
+
+---
+
+### ⚠️ Software requirements
+
+#### Docker Engine
+
+Docker Compose v2 is required.
+
+Verify installation:
+
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+#### Git
+
+```bash
+git --version
+```
+
+---
+
+#### Bash
+
+Sprout requires Bash.
+
+Linux and macOS already include it.
+
+---
+
+#### Tailscale account
+
+Create a free account:
+
+https://tailscale.com
+
+Generate an Auth Key from:
+
+https://login.tailscale.com/admin/settings/keys
+
+---
+
+#### AI Provider
+
+OpenClaw requires at least one AI provider.
+
+Today, Sprout supports only frontier model providers such as OpenAI and Anthropic 😔.
+
+Don't worry—native support for local models (Ollama and others) is already on our roadmap and will be available soon.
+
+Remember: you'll need at least one provider API key before starting.
+
+---
+
+### Installation
+
+Clone the repository.
+
+```bash
+git clone https://github.com/paalbarr/sprout.git
+cd sprout
+```
+
+Make the script executable.
+
+```bash
+chmod +x sprout.sh
+```
+
+Generate the stack.
+
+```bash
+./sprout.sh
+```
+
+This creates:
+
+```text
+openclaw-stack/
+├── .env
+├── docker-compose.yml
+├── start.sh
+├── stop.sh
+├── restart.sh
+├── recreate.sh
+├── logs.sh
+├── inspect.sh
+└── ...
+```
+
+---
+
+### Configure
+
+Open the generated environment.
+
+```bash
+cd openclaw-stack
+```
+
+Edit the environment variables.
+
+```bash
+nano .env
+```
+
+Replace the placeholders with your own values.
+
+Required:
+
+- OPENCLAW_GATEWAY_TOKEN (here you can put anything 😉)
+- TS_AUTHKEY
+
+At least one of:
+
+- OPENAI_API_KEY
+- ANTHROPIC_API_KEY
+
+---
+
+### Start
+
+Launch the stack.
+
+```bash
+./start.sh
+```
+
+Sprout will automatically:
+
+- Pull Docker images
+- Start all containers
+- Wait for Tailscale registration
+- Configure `tailscale serve`
+- Display the public Tailnet URL
+
+---
+
+### Connect
+
+Open the URL shown by `start.sh`.
+
+Use:
+
+```
+WebSocket URL:
+wss://<your-tailnet-url>/
+
+Gateway Token:
+<OPENCLAW_GATEWAY_TOKEN>
+```
+
+Leave **Password** empty.
+
+---
+
+### Approve the device
+
+The first browser connection requires approval.
+
+```bash
+./approve-device.sh <device-uuid>
+```
+
+Reconnect the browser.
+
+You're ready to use OpenClaw. 😎
+
+---
+
+### Next steps
+
+Your local OpenClaw instance is now running securely behind Tailscale.
+
+You can now:
+
+- Connect AI providers
+- Pair additional devices
+- Deploy local agents
+- Extend the Docker Compose stack
+
+---
+
+# 🎯 Architecture
+
+Sprout generates an isolated Docker network with OpenClaw, Redis, Nginx, and
+Tailscale. Tailscale is the only tailnet-facing entry point; Nginx and OpenClaw
+remain internal to the Compose stack.
+
+### Runtime model
+
+```mermaid
+flowchart LR
+    Client["Device on the Tailnet"]
+    TS["Tailscale\nHTTPS :443"]
+    Nginx["Nginx\nHTTP :80"]
+    OC["OpenClaw Gateway\n:18789"]
+    Redis["Redis 7\nPersistent state"]
+
+    Client -->|"HTTPS / WSS"| TS
+    TS -->|"tailscale serve\n127.0.0.1:80"| Nginx
+    Nginx -->|"HTTP + WebSocket proxy"| OC
+    OC -->|"redis://redis:6379"| Redis
+```
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for specifics details about network
+model, generated directory tree, persistent data, and configuration inputs.
 
 ---
 
 ## 📚 Documentation
 
-TODO
+- [Daily commands and troubleshooting](./HOWTO.md)
+- [Architecture and generated project structure](./ARCHITECTURE.md)
 
 ---
 
@@ -61,4 +312,3 @@ TODO
 This project is licensed under the **Apache 2.0** - free for personal and commercial use.
 
 See [LICENSE](./LICENSE) for details.
-

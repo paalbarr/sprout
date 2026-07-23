@@ -2,52 +2,53 @@
 set -euo pipefail
 
 # ==============================================================================
-# sprout.sh  (0.4 — operativo)
+# sprout.sh  (0.5 — operational)
 # ------------------------------------------------------------------------------
-# Genera un stack Docker Compose portable con:
+# Generates a portable Docker Compose stack with:
 #
 #   - OpenClaw    (alpine/openclaw)         — gateway + dashboard
-#   - Redis       (redis:7-alpine)          — caché / estado
-#   - Nginx       (nginx:alpine)            — reverse proxy interno
-#   - Tailscale   (tailscale/tailscale)     — único punto de ingreso al tailnet
+#   - Redis       (redis:7-alpine)          — cache / state
+#   - Nginx       (nginx:alpine)            — internal reverse proxy
+#   - Tailscale   (tailscale/tailscale)     — single entry point to the tailnet
 #
-# Arquitectura:
+# Architecture:
 #
 #   tailnet ──HTTPS──► tailscale (serve) ──► nginx :80 ──► openclaw :18789
-#                       └─ comparte network namespace con nginx ─┘
+#                       └─ shares a network namespace with nginx ─┘
 #
-#   Red Docker propia con subnet e IPs fijas. No depende del IP/LAN del host.
-#   Se alcanza siempre en: https://<TS_HOSTNAME>.<tu-tailnet>.ts.net
+#   Dedicated Docker network with a subnet and fixed IPs. It does not depend on
+#   the host IP/LAN. It is always reachable at:
+#   https://<TS_HOSTNAME>.<your-tailnet>.ts.net
 #
-# Fixes incorporados respecto a la versión anterior:
-#   1. openclaw.json incluye "mode": "local" (sin esto el gateway no arranca)
-#   2. tailscale serve se configura vía CLI dentro de start.sh
-#      (eliminamos TS_SERVE_CONFIG porque ${TS_CERT_DOMAIN} no siempre
-#       se sustituye en el entrypoint, causando connection refused a :443)
-#   3. start.sh espera a que Tailscale registre antes de configurar serve
-#   4. .env incluye placeholders para OPENAI_API_KEY / ANTHROPIC_API_KEY
-#      (necesarios porque el modelo default es openai/gpt-5.5)
+# Fixes included since the previous version:
+#   1. openclaw.json includes "mode": "local" (without it, the gateway fails to start)
+#   2. tailscale serve is configured through the CLI in start.sh
+#      (TS_SERVE_CONFIG was removed because ${TS_CERT_DOMAIN} is not always
+#       substituted in the entrypoint, causing connection refused on :443)
+#   3. start.sh waits for Tailscale registration before configuring serve
+#   4. .env includes placeholders for OPENAI_API_KEY / ANTHROPIC_API_KEY
+#      (required because the default model is openai/gpt-5.5)
 # ==============================================================================
-# USO
+# USAGE
 # ------------------------------------------------------------------------------
 #   chmod +x sprout.sh
 #   ./sprout.sh
 #   cd openclaw-stack
-#   nano .env                       # token, auth key, API key del proveedor
-#   ./start.sh                      # arranca + configura tailscale serve
+#   nano .env                       # token, auth key, provider API key
+#   ./start.sh                      # starts + configures tailscale serve
 #
-# Después del primer arranque:
-#   - Abre https://<TS_HOSTNAME>.<tu-tailnet>.ts.net desde un dispositivo
-#     del tailnet
-#   - En el formulario:
-#       WebSocket URL: wss://<TS_HOSTNAME>.<tu-tailnet>.ts.net/
-#       Gateway Token: el valor de OPENCLAW_GATEWAY_TOKEN del .env
-#       (Password queda vacío)
-#   - Te pedirá aprobar el dispositivo. Desde la terminal del host:
-#       ./approve-device.sh <UUID-que-mostró-el-dashboard>
+# After the first start:
+#   - Open https://<TS_HOSTNAME>.<your-tailnet>.ts.net from a device on the
+#     tailnet.
+#   - In the form:
+#       WebSocket URL: wss://<TS_HOSTNAME>.<your-tailnet>.ts.net/
+#       Gateway Token: the OPENCLAW_GATEWAY_TOKEN value from .env
+#       (leave Password blank)
+#   - You will be asked to approve the device. From the host terminal:
+#       ./approve-device.sh <UUID-shown-by-the-dashboard>
 # ==============================================================================
 
-# -------- 0. Parámetros --------
+# -------- 0. Parameters --------
 STACK_DIR="${STACK_DIR:-openclaw-stack}"
 TZ_VALUE="${TZ_VALUE:-America/Santiago}"
 TS_HOSTNAME="${TS_HOSTNAME:-openclaw-docker}"
@@ -61,7 +62,7 @@ OPENCLAW_VERSION="${OPENCLAW_VERSION:-latest}"
 DEFAULT_OPENCLAW_GATEWAY_TOKEN="CHANGE_THIS_LONG_SECURE_TOKEN"
 DEFAULT_TS_AUTHKEY="tskey-auth-xxxxxxxxxxxxxxxx"
 
-echo "[i] Creando stack OpenClaw en: $STACK_DIR"
+echo "[i] Creating OpenClaw stack in: $STACK_DIR"
 
 mkdir -p "$STACK_DIR"/{nginx,openclaw-data,redis-data,tailscale/state}
 cd "$STACK_DIR"
@@ -72,30 +73,30 @@ cd "$STACK_DIR"
 if [[ ! -f ".env" ]]; then
   cat > .env <<EOF_ENV
 # ==============================================================================
-# OpenClaw stack — variables sensibles
+# OpenClaw stack — sensitive variables
 # ==============================================================================
 
 TZ=${TZ_VALUE}
 
-# Generar uno propio con:
+# Generate your own with:
 #   openssl rand -base64 48
 OPENCLAW_GATEWAY_TOKEN=${DEFAULT_OPENCLAW_GATEWAY_TOKEN}
 
 # Tailscale auth key (https://login.tailscale.com/admin/settings/keys)
-# Conviene usar una key reutilizable y con tag (ej. tag:docker)
-# Para pruebas que destruyes/recreas, usar --ephemeral evita nodos huérfanos
+# It is advisable to use a reusable tagged key (e.g. tag:docker)
+# For test environments that you destroy/recreate, --ephemeral avoids orphaned nodes
 TS_AUTHKEY=${DEFAULT_TS_AUTHKEY}
 
 TS_HOSTNAME=${TS_HOSTNAME}
 
-# --- Proveedor de IA (OpenClaw default: openai/gpt-5.5) ---
-# Agrega al menos uno según el modelo que vayas a usar.
+# --- AI provider (OpenClaw default: openai/gpt-5.5) ---
+# Add at least one based on the model you intend to use.
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
 EOF_ENV
-  echo "[✓] .env creado"
+  echo "[✓] .env created"
 else
-  echo "[i] .env ya existe — no se sobreescribe"
+  echo "[i] .env already exists — it will not be overwritten"
 fi
 
 # ------------------------------------------------------------------------------
@@ -128,16 +129,16 @@ cat > openclaw-data/openclaw.json <<EOF_JSON
 }
 EOF_JSON
 
-echo "[✓] openclaw-data/openclaw.json creado"
+echo "[✓] openclaw-data/openclaw.json created"
 
 # ------------------------------------------------------------------------------
 # nginx/openclaw.conf
 # ------------------------------------------------------------------------------
 cat > nginx/openclaw.conf <<'EOF_NGINX'
 # ==============================================================================
-# Reverse proxy interno hacia OpenClaw
-# El upstream "openclaw" se resuelve via DNS interno de Docker en openclaw_net
-# (heredado del network namespace de Tailscale)
+# Internal reverse proxy to OpenClaw
+# The "openclaw" upstream is resolved through Docker's internal DNS on openclaw_net
+# (inherited from the Tailscale network namespace)
 # ==============================================================================
 
 map $http_upgrade $connection_upgrade {
@@ -175,14 +176,14 @@ server {
 }
 EOF_NGINX
 
-echo "[✓] nginx/openclaw.conf creado"
+echo "[✓] nginx/openclaw.conf created"
 
 # ------------------------------------------------------------------------------
 # docker-compose.yml
 # ------------------------------------------------------------------------------
 cat > docker-compose.yml <<EOF_COMPOSE
 # ==============================================================================
-# OpenClaw stack — red Docker propia + Tailscale como único punto de ingreso
+# OpenClaw stack — dedicated Docker network + Tailscale as the single entry point
 # ==============================================================================
 
 services:
@@ -241,8 +242,8 @@ services:
 
     hostname: \${TS_HOSTNAME}
 
-    # NOTA: NO usamos TS_SERVE_CONFIG porque \${TS_CERT_DOMAIN} no siempre
-    # se sustituye en el entrypoint. start.sh configura serve via CLI.
+    # NOTE: TS_SERVE_CONFIG is NOT used because \${TS_CERT_DOMAIN} is not always
+    # substituted in the entrypoint. start.sh configures serve through the CLI.
     environment:
       TS_AUTHKEY: \${TS_AUTHKEY}
       TS_HOSTNAME: \${TS_HOSTNAME}
@@ -265,10 +266,10 @@ services:
     container_name: openclaw-nginx
     restart: unless-stopped
 
-    # Comparte el network namespace de Tailscale:
-    #   - escucha en :80 dentro de ese namespace
-    #   - tailscale serve hace HTTPS:443 -> 127.0.0.1:80 (configurado en start.sh)
-    #   - resuelve "openclaw" via el DNS de openclaw_net que hereda
+    # Shares Tailscale's network namespace:
+    #   - listens on :80 inside that namespace
+    #   - tailscale serve routes HTTPS:443 -> 127.0.0.1:80 (configured in start.sh)
+    #   - resolves "openclaw" through the inherited openclaw_net DNS
     network_mode: "service:tailscale"
 
     volumes:
@@ -287,7 +288,7 @@ networks:
         - subnet: ${DOCKER_SUBNET}
 EOF_COMPOSE
 
-echo "[✓] docker-compose.yml creado"
+echo "[✓] docker-compose.yml created"
 
 # ------------------------------------------------------------------------------
 # Helper scripts
@@ -297,49 +298,49 @@ cat > start.sh <<'EOF_START'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Guardrail: no arrancar con tokens placeholder
+# Guardrail: do not start with placeholder tokens
 if grep -qE 'CHANGE_THIS|tskey-auth-xxxx' .env; then
-  echo "[error] Edita .env: OPENCLAW_GATEWAY_TOKEN y/o TS_AUTHKEY siguen con valores placeholder." >&2
+  echo "[error] Edit .env: OPENCLAW_GATEWAY_TOKEN and/or TS_AUTHKEY still use placeholder values." >&2
   exit 1
 fi
 
-echo "[i] Pull de imágenes..."
+echo "[i] Pulling images..."
 docker compose pull
 
-echo "[i] Levantando stack..."
+echo "[i] Starting stack..."
 docker compose up -d
 
-# Esperar a que tailscale registre en el tailnet
-echo "[i] Esperando registro de Tailscale (puede tardar hasta 30s)..."
+# Wait for Tailscale to register with the tailnet
+echo "[i] Waiting for Tailscale registration (may take up to 30s)..."
 for i in $(seq 1 30); do
   if docker compose exec -T tailscale tailscale status 2>/dev/null | grep -q "$(grep TS_HOSTNAME .env | cut -d= -f2)"; then
-    echo "[✓] Tailscale registrado"
+    echo "[✓] Tailscale registered"
     break
   fi
   sleep 2
 done
 
-# Configurar tailscale serve via CLI (auto-resuelve el FQDN)
-echo "[i] Configurando tailscale serve..."
+# Configure tailscale serve through the CLI (automatically resolves the FQDN)
+echo "[i] Configuring tailscale serve..."
 docker compose exec -T tailscale tailscale serve reset 2>/dev/null || true
 docker compose exec -T tailscale tailscale serve --bg --https=443 http://127.0.0.1:80
 
 echo
-echo "[i] Estado del stack:"
+echo "[i] Stack status:"
 docker compose ps
 
 echo
-echo "[i] URL pública en tu tailnet:"
+echo "[i] Public URL on your tailnet:"
 docker compose exec -T tailscale tailscale serve status
 
 echo
-echo "[i] Próximos pasos:"
-echo "    1) Abre la URL de arriba en un dispositivo del tailnet"
-echo "    2) Conecta con:"
-echo "         WebSocket URL: wss://<tu-fqdn>/"
+echo "[i] Next steps:"
+echo "    1) Open the URL above from a device on the tailnet"
+echo "    2) Connect with:"
+echo "         WebSocket URL: wss://<your-fqdn>/"
 echo "         Token: \$(grep OPENCLAW_GATEWAY_TOKEN .env | cut -d= -f2)"
-echo "    3) Aprueba el device pairing:"
-echo "         ./approve-device.sh <UUID-mostrado-en-dashboard>"
+echo "    3) Approve the device pairing:"
+echo "         ./approve-device.sh <UUID-shown-by-the-dashboard>"
 EOF_START
 chmod +x start.sh
 
@@ -393,10 +394,10 @@ cat > approve-device.sh <<'EOF_APPROVE'
 set -euo pipefail
 
 if [ $# -eq 0 ]; then
-  echo "[i] Dispositivos pendientes de aprobación:"
+  echo "[i] Devices pending approval:"
   docker compose exec openclaw openclaw devices list
   echo
-  echo "Uso: ./approve-device.sh <uuid>"
+  echo "Usage: ./approve-device.sh <uuid>"
   exit 0
 fi
 
@@ -412,19 +413,19 @@ echo "[i] Containers:"
 docker compose ps
 echo
 
-echo "[i] IPs internas:"
+echo "[i] Internal IPs:"
 for c in openclaw openclaw-redis openclaw-tailscale; do
   printf "  %-22s " "$c"
-  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c" 2>/dev/null || echo "(no corriendo)"
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$c" 2>/dev/null || echo "(not running)"
 done
 echo
 
 echo "[i] Tailscale serve status:"
-docker compose exec -T tailscale tailscale serve status 2>/dev/null || echo "(serve no configurado)"
+docker compose exec -T tailscale tailscale serve status 2>/dev/null || echo "(serve not configured)"
 echo
 
 echo "[i] Tailscale node status:"
-docker compose exec -T tailscale tailscale status 2>/dev/null | head -10 || echo "(tailscale no respondió)"
+docker compose exec -T tailscale tailscale status 2>/dev/null | head -10 || echo "(tailscale did not respond)"
 EOF_INSPECT
 chmod +x inspect.sh
 
@@ -432,11 +433,11 @@ cat > health.sh <<'EOF_HEALTH'
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[i] Health (vía nginx interno):"
+echo "[i] Health (through internal nginx):"
 docker compose exec tailscale wget -qO- http://127.0.0.1:80/healthz || true
 echo
 
-echo "[i] Readiness (vía nginx interno):"
+echo "[i] Readiness (through internal nginx):"
 docker compose exec tailscale wget -qO- http://127.0.0.1:80/readyz || true
 echo
 EOF_HEALTH
@@ -446,81 +447,81 @@ chmod +x health.sh
 # README
 # ------------------------------------------------------------------------------
 cat > README.txt <<EOF_README
-OpenClaw stack — versión validada end-to-end
+OpenClaw stack — end-to-end validated version
 
-Arquitectura:
+Architecture:
   tailnet --HTTPS--> tailscale (serve) --> nginx :80 --> openclaw :18789
 
-  - Red Docker propia: ${DOCKER_NETWORK_NAME} (${DOCKER_SUBNET})
-  - IPs fijas: tailscale=${TS_FIXED_IP}  openclaw=${OPENCLAW_FIXED_IP}  redis=${REDIS_FIXED_IP}
-  - Nginx comparte network namespace de tailscale
-  - tailscale serve configurado por CLI (no por archivo, evita issue de
-    sustitución de \${TS_CERT_DOMAIN} en el entrypoint)
-  - No depende del IP/LAN del host
+  - Dedicated Docker network: ${DOCKER_NETWORK_NAME} (${DOCKER_SUBNET})
+  - Fixed IPs: tailscale=${TS_FIXED_IP}  openclaw=${OPENCLAW_FIXED_IP}  redis=${REDIS_FIXED_IP}
+  - Nginx shares Tailscale's network namespace
+  - tailscale serve configured through the CLI (not through a file, avoiding
+    \${TS_CERT_DOMAIN} substitution issues in the entrypoint)
+  - Does not depend on the host IP/LAN
 
-Antes de arrancar:
-  1) Edita .env y reemplaza:
+Before starting:
+  1) Edit .env and replace:
        OPENCLAW_GATEWAY_TOKEN   (openssl rand -base64 48)
        TS_AUTHKEY               (https://login.tailscale.com/admin/settings/keys)
-       OPENAI_API_KEY o ANTHROPIC_API_KEY (según el modelo a usar)
+       OPENAI_API_KEY or ANTHROPIC_API_KEY (depending on the model to use)
 
-Comandos:
-  ./start.sh           — pull + up + configurar tailscale serve
-  ./stop.sh            — bajar todo
-  ./restart.sh         — down + start (reconfigura tailscale serve)
-  ./recreate.sh        — recrear forzado todos los containers
-  ./logs.sh            — logs combinados
-  ./logs-openclaw.sh   — logs solo de openclaw
-  ./logs-tailscale.sh  — logs solo de tailscale
-  ./inspect.sh         — IPs internas + estado tailscale + serve status
-  ./health.sh          — /healthz y /readyz vía nginx interno
-  ./approve-device.sh  — listar/aprobar dispositivos del Control UI
+Commands:
+  ./start.sh           — pull + up + configure tailscale serve
+  ./stop.sh            — stop everything
+  ./restart.sh         — down + start (reconfigures tailscale serve)
+  ./recreate.sh        — force-recreate all containers
+  ./logs.sh            — combined logs
+  ./logs-openclaw.sh   — OpenClaw logs only
+  ./logs-tailscale.sh  — Tailscale logs only
+  ./inspect.sh         — internal IPs + Tailscale status + serve status
+  ./health.sh          — /healthz and /readyz through internal nginx
+  ./approve-device.sh  — list/approve Control UI devices
 
-Primer arranque:
+First start:
   cd ${STACK_DIR}
   ./start.sh
-  # copia la URL que muestra al final, abre en navegador del tailnet
-  # en el formulario: WebSocket URL = wss://<esa-url-pero-con-wss-y-slash-final>/
-  # token = el de .env
-  # Connect -> te pedirá aprobar device pairing:
+  # copy the URL displayed at the end and open it in a tailnet browser
+  # in the form: WebSocket URL = wss://<that-url-with-wss-and-a-trailing-slash>/
+  # token = the value from .env
+  # Connect -> you will be asked to approve device pairing:
   ./approve-device.sh <UUID>
-  # Reconnect en el navegador -> listo
+  # Reconnect in the browser -> ready
 
-Portabilidad:
+Portability:
   - macOS / WSL2 / Raspberry Pi 64-bit / Ubuntu Server
-  - Userspace mode en Tailscale: no requiere /dev/net/tun ni NET_ADMIN
-  - Si la subnet ${DOCKER_SUBNET} choca con tu LAN:
+  - Tailscale userspace mode: does not require /dev/net/tun or NET_ADMIN
+  - If the ${DOCKER_SUBNET} subnet conflicts with your LAN:
       DOCKER_SUBNET=172.31.10.0/24 \\
       TS_FIXED_IP=172.31.10.10 \\
       OPENCLAW_FIXED_IP=172.31.10.20 \\
       REDIS_FIXED_IP=172.31.10.30 \\
       ./sprout.sh
 
-Versionado:
-  Para fijar la versión de OpenClaw (recomendado en producción):
+Versioning:
+  To pin the OpenClaw version (recommended for production):
       OPENCLAW_VERSION=v1.2.3 ./sprout.sh
 
 Troubleshooting:
   - "Gateway start blocked: missing gateway.mode"
-       openclaw-data/openclaw.json ya incluye "mode": "local" — no debería pasar.
+       openclaw-data/openclaw.json already includes "mode": "local" — this should not happen.
   - "Tailscale node name -1 suffix"
-       Hay un nodo huérfano con el mismo nombre. Bórralo en
-       https://login.tailscale.com/admin/machines y corre ./recreate.sh
-  - "WebSocket disconnected (1006)" con logs sin actividad
-       Asegúrate de usar wss:// (no ws://) y sin puerto en la URL.
-  - "Mixed Content blocked" en consola del navegador
-       Mismo caso anterior — wss://, no ws://
+       An orphaned node with the same name exists. Delete it at
+       https://login.tailscale.com/admin/machines and run ./recreate.sh
+  - "WebSocket disconnected (1006)" with no activity in the logs
+       Make sure to use wss:// (not ws://) and no port in the URL.
+  - "Mixed Content blocked" in the browser console
+       Same issue as above — wss://, not ws://
   - "Device pairing required"
-       Esperado en cada navegador nuevo. ./approve-device.sh <UUID>
+       Expected for each new browser. ./approve-device.sh <UUID>
 EOF_README
 
-echo "[✓] README.txt creado"
+echo "[✓] README.txt created"
 echo
-echo "[✓] Stack generado en ./${STACK_DIR}"
+echo "[✓] Stack generated in ./${STACK_DIR}"
 echo
-echo "[!] Antes de arrancar edita:"
-echo "    ${STACK_DIR}/.env  — OPENCLAW_GATEWAY_TOKEN, TS_AUTHKEY, API key del proveedor"
+echo "[!] Before starting, edit:"
+echo "    ${STACK_DIR}/.env  — OPENCLAW_GATEWAY_TOKEN, TS_AUTHKEY, provider API key"
 echo
-echo "[i] Para arrancar:"
+echo "[i] To start:"
 echo "    cd ${STACK_DIR}"
 echo "    ./start.sh"

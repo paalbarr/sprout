@@ -303,7 +303,9 @@ model, generated directory tree, persistent data, and configuration inputs.
 ## 📚 Documentation
 
 - [Daily commands and troubleshooting](./HOWTO.md)
-- [Architecture and generated project structure](./ARCHITECTURE.md)
+- [Architecture model explained](./ARCHITECTURE.md)
+- [Architecture specs](./SPECS.md)
+- [Development coding standards](./DEVELOPMENT.md)
 
 ---
 

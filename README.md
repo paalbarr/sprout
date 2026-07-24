@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img alt="GitHub Tag" src="https://img.shields.io/github/v/tag/paalbarr/sprout.svg" alt="Release"/>
+  <img alt="GitHub Tag" src="https://img.shields.io/github/v/release/paalbarr/sprout.svg" alt="Release"/>
   <img src="https://img.shields.io/badge/License-Apache-2.svg" alt="License"/>
   <img alt="Static Badge" src="https://img.shields.io/badge/ARM_x86-Ready-red.svg">
   <img src="https://img.shields.io/badge/Docker-Ready-blue.svg" alt="Docker"/>

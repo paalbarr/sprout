@@ -1,10 +1,23 @@
-# 🎯 Sprout Architecture
+# 🎯 SPR-003 — Sprout Architecture Model Explained
+
+| Field | Value |
+|-------|-------|
+| **Document ID** | SPR-003 |
+| **Version** | 1.0  |
+| **Status** | Final |
+| **Authors** | Pablo Albarrán |
+| **Audience** | Core maintainers, module developers, infrastructure engineers, contributors, AI coding agents |
+| **Last Updated** | 2026-07-08 |
+
+---
+
+## Important notice
 
 `sprout.sh` creates a self-contained OpenClaw stack in a local directory. The
 default target is `./openclaw-stack`; override it with `STACK_DIR` when running
 the script.
 
-### Network model
+# 1. Network model
 
 The generated Compose project creates a dedicated bridge network named
 `openclaw_net` by default (`172.30.10.0/24`). It assigns fixed addresses to
@@ -21,7 +34,7 @@ network namespace. Nginx listens only on port `80` in that namespace;
 `tailscale serve` exposes it as HTTPS on port `443` to the tailnet. The Compose
 file publishes no host ports.
 
-## Generated project layout
+# 2. Generated project layout
 
 Running the script produces the following structure. Persistent directories
 are marked with **(persistent)**.
@@ -50,7 +63,7 @@ openclaw-stack/
     └── state/                   # Tailscale node state **(persistent)**
 ```
 
-## Generated files and responsibilities
+# 3. Generated files and responsibilities
 
 | File | Created or updated by Sprout | Purpose |
 | --- | --- | --- |
@@ -62,7 +75,7 @@ openclaw-stack/
 | `README.txt` | Recreated on each run | Provides stack-specific setup, operation, portability, and troubleshooting guidance. |
 | Other helper scripts | Recreated on each run | Provide lifecycle, logs, inspection, health, and device-approval commands. |
 
-## Persistent data
+# 4. Persistent data
 
 The script preserves the following directories across `docker compose down` and
 container recreation:
@@ -74,7 +87,7 @@ container recreation:
 Deleting these directories resets their respective components. Keep `.env`
 private: it contains authentication credentials and provider API keys.
 
-## Request flow
+# 5. Request flow
 
 1. A client already connected to the tailnet opens the Tailscale HTTPS URL.
 2. Tailscale terminates the tailnet-facing HTTPS connection and forwards traffic
@@ -84,7 +97,7 @@ private: it contains authentication credentials and provider API keys.
 4. OpenClaw reads or writes runtime state through Redis.
 5. The Control UI device-pairing flow is completed with `approve-device.sh`.
 
-## Configuration inputs
+# 6. Configuration inputs
 
 The script accepts environment variables before execution. These change the
 generated configuration without requiring manual edits to `docker-compose.yml`.

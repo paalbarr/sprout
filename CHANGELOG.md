@@ -10,7 +10,6 @@ All notable changes to this project will be documented in this file.
 - Validation of minimal requeriments before start
 - Native Ollama+Tinyllama support
 - GIT for OpenClaw update
-- Automate OpenClaw Token generation
 - Modules support for extensibility
 - Interactive mode for configuring Frontier AI models
 
@@ -21,7 +20,25 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-TODO
+Nothing
+---
+
+## [0.7] - 2026-07-27
+
+### Added
+
+- Interactive KEY entry for Tailscale
+- Automatic TOKEN creation for Openclaw
+- Installation of Ollama+Tinyllama module in embedded format
+
+### Changed
+
+Nothing
+
+### Fixed
+
+Validating the output of commands sent to Docker
+Validating the output of commands sent to Openclaw
 
 ---
 

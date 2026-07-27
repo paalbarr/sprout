@@ -1,4 +1,4 @@
-# SPR-001 — Sprout Architecture Specification
+# 📘 SPR-001 — Sprout Architecture Specification
 
 | Field | Value |
 |-------|-------|
@@ -308,7 +308,7 @@ Once provisioned, the Runtime keeps operating independently of Garden availabili
 
 # 7. Garden Architecture
 
-Garden is the discovery/distribution layer: it publishes metadata about *available* modules without ever becoming part of the Runtime. It SHALL contain metadata only — no Runtime state, operational data, or user configuration — so the Core can discover, resolve, and install capabilities while staying independent of module implementations, and so new modules never require Core changes.
+Garden is the official Module Registry of the Sprout ecosystem: it publishes metadata about *available* modules without ever becoming part of the Runtime. It SHALL contain metadata only — no Runtime state, operational data, or user configuration — so the Core can discover, resolve, and install capabilities while staying independent of module implementations, and so new modules never require Core changes.
 
 ```
                 Sprout Core
@@ -325,9 +325,37 @@ Garden is the discovery/distribution layer: it publishes metadata about *availab
 ```
 *Garden provides information. The Core decides. Modules implement.*
 
+*The Core SHALL NOT embed Module implementations.*
+
+Instead, during stack generation, the Core SHALL:
+
+1. Bootstrap the local Runtime.
+2. Download the Garden index.
+3. Resolve the Bootstrap Module.
+4. Download every required Module into the local `modules/` directory.
+5. Execute the standard lifecycle through the Module Engine.
+
+The Garden is therefore responsible only for module distribution.
+Lifecycle execution, dependency resolution, validation and registration remain exclusive responsibilities of the Core.
+
+
 ## 7.1 Index, Cache & Resolution
 
 Garden is published remotely; the Core syncs a **local cache** (`garden/index.yaml`) before operations needing resolution (install, update, search, info, dependency resolution) — enabling offline operation, determinism, and fewer network round-trips. The Runtime keeps working even when Garden is unreachable, using the cached index if available; with no metadata at all, the operation fails gracefully.
+
+Garden must follow this reference implementation:
+
+```
+garden/
+├── index.yaml
+├── ollama/
+│   ├── module.yaml
+│   ├── compose.yml
+│   └── module.sh
+├── postgres/
+├── openwebui/
+└── ...
+```
 
 The index only needs to support discovery, version resolution, dependency resolution, and compatibility checks — implementation detail lives in each module's own definition:
 
@@ -335,10 +363,17 @@ The index only needs to support discovery, version resolution, dependency resolu
 modules:
   - name: ollama
     version: 1.0.0
+    repository: https://github.com/route/of/ollama/repo/module
+    path: ollama
+    bootstrap: true
   - name: postgres
     version: 17
+    repository: https://github.com/route/of/postgres/repo/module
+    path: postgres    
   - name: qdrant
     version: 1.15
+    repository: https://github.com/route/of/qdrant/repo/module
+    path: qdrant
 ```
 
 **Module resolution flow:** `sprout install postgres → Update Garden → Read index → Resolve module → Resolve dependencies → Download → Provision`. Users never touch Garden directly.
@@ -407,10 +442,10 @@ A module MAY expose one or more capabilities (a database, an AI provider, an MCP
 Every module implements the same lifecycle and logical API:
 
 ```
-Install → Configure → Provision → Validate → READY
+Install → Configure → Provision → Register → Validate → READY
 ```
 ```
-install() · configure() · provision() · validate()
+install() · configure() · provision()· register() validate()
 start() · stop() · update() · remove() · doctor()
 ```
 
@@ -420,11 +455,19 @@ A module never reaches READY unless every prior phase succeeds, and is never inv
 
 **Bootstrap Module:** the official one is `ollama` — installs Ollama, downloads TinyLlama, configures the local provider, auto-onboards OpenClaw, validates inference, and exposes a READY Runtime. It is architecturally identical to any other module; it simply happens to run first.
 
+However, every Bootstrap Module that provides local AI inference capabilities SHALL automatically provision and register one or more model providers into the OpenClaw Runtime as part of its lifecycle. A Bootstrap Module SHALL NOT transition to READY until every declared provider has been successfully registered, validated, and is available for inference.
+
 ## 8.4 Isolation, Registration & Versioning
 
 Modules SHALL NOT inspect, modify, or assume another module's files, config, or lifecycle — shared behavior is coordinated only by the Core. After successful validation, the **Core** (never the module itself) registers it in the Runtime (name, version, lifecycle status, capabilities, timestamp). On a failed phase: provisioning stops, the module never reaches READY, metadata updates, and the failure is reported — recovery is a Core responsibility.
 
 Modules version independently: updating a module never forces a Core update, and vice versa, as long as compatibility holds. The module contract itself stays stable; future revisions MAY add lifecycle ops or metadata fields, but breaking changes require a Specification revision.
+
+The Register phase is responsible for integrating the capability provided by a module into the Runtime.
+Registration MUST be idempotent.
+A module SHALL expose every runtime endpoint, model, provider, credential or capability required by dependent components through the Runtime API.
+For AI inference modules, Register SHALL automatically create or update the corresponding OpenClaw provider configuration
+A module SHALL NOT transition to READY until Register completes successfully.
 
 ---
 

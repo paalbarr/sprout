@@ -1,4 +1,4 @@
-# SPR-002 — Sprout Coding Standards
+# 📐 SPR-002 — Sprout Coding Standards
 
 | Field | Value |
 |-------|-------|

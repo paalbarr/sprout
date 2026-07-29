@@ -37,8 +37,8 @@ Nothing
 
 ### Fixed
 
-Validating the output of commands sent to Docker
-Validating the output of commands sent to Openclaw
+- Validating the output of commands sent to Docker
+- Validating the output of commands sent to Openclaw
 
 ---
 

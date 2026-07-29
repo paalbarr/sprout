@@ -331,9 +331,10 @@ Instead, during stack generation, the Core SHALL:
 
 1. Bootstrap the local Runtime.
 2. Download the Garden index.
-3. Resolve the Bootstrap Module.
-4. Download every required Module into the local `modules/` directory.
-5. Execute the standard lifecycle through the Module Engine.
+3. Resolve the module marked as `bootstrap`.
+4. Resolve its complete dependency graph.
+5. Download every required module into the local `modules/` directory.
+6. Execute the lifecycle in dependency order through the Module Engine.
 
 The Garden is therefore responsible only for module distribution.
 Lifecycle execution, dependency resolution, validation and registration remain exclusive responsibilities of the Core.
@@ -361,22 +362,26 @@ The index only needs to support discovery, version resolution, dependency resolu
 
 ```yaml
 modules:
+  - name: tinyllama
+    version: 1.0.0
+    description: Local model
+    repository: https://github.com/paalbarr/sprout.git
+    branch: garden
+    path: tinyllama
+    bootstrap: true
+    depends:
+      - ollama
   - name: ollama
     version: 1.0.0
-    repository: https://github.com/route/of/ollama/repo/module
+    description: Local runtime
+    repository: https://github.com/paalbarr/sprout.git
+    branch: garden
     path: ollama
-    bootstrap: true
-  - name: postgres
-    version: 17
-    repository: https://github.com/route/of/postgres/repo/module
-    path: postgres    
-  - name: qdrant
-    version: 1.15
-    repository: https://github.com/route/of/qdrant/repo/module
-    path: qdrant
 ```
 
-**Module resolution flow:** `sprout install postgres → Update Garden → Read index → Resolve module → Resolve dependencies → Download → Provision`. Users never touch Garden directly.
+**Module resolution flow:** `sprout install tinyllama → Update Garden → Read index → Resolve module → Resolve dependencies → Download → Provision`. Users never touch Garden directly.
+
+The dependencies are resolved recursively using the depends field until a complete installation graph is obtained. Dependency chains may contain any number of modules; circular dependencies are rejected.
 
 **Versioning:** unless pinned, the Core provisions the latest compatible version; future revisions MAY add semver constraints, LTS releases, or experimental channels.
 
@@ -419,20 +424,12 @@ name:
 version:
 description:
 author:
-repository:
+license:
 
 # optional
 depends:
+bootstrap
 provides:
-architectures:
-healthcheck:
-ports:
-volumes:
-environment:
-permissions:
-tags:
-documentation:
-license:
 ```
 
 A module MAY expose one or more capabilities (a database, an AI provider, an MCP server, a workflow engine, a reverse proxy, …) — capabilities describe *what* it delivers; the Core decides *when* it's provisioned.
@@ -453,7 +450,7 @@ A module never reaches READY unless every prior phase succeeds, and is never inv
 
 **Dependencies:** resolved by the Core before any lifecycle op begins, in dependency order (`OpenWebUI → Ollama → Docker`); circular dependencies are rejected.
 
-**Bootstrap Module:** the official one is `ollama` — installs Ollama, downloads TinyLlama, configures the local provider, auto-onboards OpenClaw, validates inference, and exposes a READY Runtime. It is architecturally identical to any other module; it simply happens to run first.
+**Bootstrap Module:** is the unique module marked with bootstrap: true in the Garden index. The Core resolves its dependency graph and provisions every required module before executing the Bootstrap Module itself. The Bootstrap Module therefore represents the entry point of the Runtime, while remaining architecturally identical to every other module. Bootstrap is a role, not a module type.
 
 However, every Bootstrap Module that provides local AI inference capabilities SHALL automatically provision and register one or more model providers into the OpenClaw Runtime as part of its lifecycle. A Bootstrap Module SHALL NOT transition to READY until every declared provider has been successfully registered, validated, and is available for inference.
 
@@ -498,9 +495,10 @@ Each phase must fully succeed before the next begins; the lifecycle aborts immed
 
 | Module | Provisioning includes | READY only after |
 |---|---|---|
-| PostgreSQL | Install, create cluster, admin users, auth config | connectivity validated |
-| Ollama | Install, download TinyLlama, configure providers | local inference succeeds |
+| Ollama | Install local inference runtime | runtime operational |
+| Tinyllama | Download model, register provider, validate inference | inference succeeds |
 | OpenAI Provider | Collect API key, register provider | authentication + model availability validated |
+| PostgreSQL | Install, create DB, admin users, auth config | connectivity validated |
 
 ## 9.2 Operational Guarantees
 

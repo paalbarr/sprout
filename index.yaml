@@ -1,0 +1,44 @@
+# ==============================================================================
+# Garden index — the official Sprout Module Registry (SPR-001 §7).
+# Published at the root of the "garden" branch. Cached locally by the Core's
+# Garden Client as garden/index.yaml (SPR-001 §7.1).
+#
+# Format (Sprout-owned contract, not arbitrary YAML — see garden_flat() in
+# the generated ./sprout CLI for the exact parser this must satisfy):
+#   - 2-space indent for each "- name: <module>" list item
+#   - 4-space indent for that module's own fields (version, description,
+#     repository, branch, path, bootstrap, ...)
+#   - "depends:" is the only nested list; its items sit at 6-space indent
+#
+# Fields:
+#   name         unique module identifier
+#   version      module version (informational; the Core provisions whatever
+#                the pinned branch/path currently contains)
+#   description  one line, shown by `sprout search` / `sprout info`
+#   repository   git URL the module's files are cloned from (may differ per
+#                module — the Garden index itself may live in one repo while
+#                individual modules live in others)
+#   branch       branch to clone
+#   path         directory inside that branch containing module.yaml,
+#                optionally compose.yml, and module.sh
+#   bootstrap    true on exactly one module: the Core provisions it (and its
+#                full dependency graph) automatically on first ./start.sh
+#   depends      other modules (by name, resolved within this same index)
+#                that must reach READY before this module is provisioned
+# ==============================================================================
+modules:
+  - name: tinyllama
+    version: 1.0.0
+    description: Pulls TinyLlama into Ollama and registers it as the default OpenClaw local-inference provider.
+    repository: https://github.com/paalbarr/sprout.git
+    branch: garden
+    path: tinyllama
+    bootstrap: true
+    depends:
+      - ollama
+  - name: ollama
+    version: 1.0.0
+    description: Local inference runtime (Ollama server), no bundled model.
+    repository: https://github.com/paalbarr/sprout.git
+    branch: garden
+    path: ollama

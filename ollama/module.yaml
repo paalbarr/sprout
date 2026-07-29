@@ -1,0 +1,9 @@
+name: ollama
+version: 1.0.0
+description: Local inference runtime (Ollama server) with no bundled models.
+author: Sprout Contributors
+license: MIT
+repository: https://github.com/ollama/ollama
+depends:
+provides: local-inference-runtime
+healthcheck: http://ollama:11434/api/tags

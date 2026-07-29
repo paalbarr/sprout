@@ -1,0 +1,14 @@
+ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    container_name: sprout-ollama
+    restart: unless-stopped
+
+    volumes:
+      - ./modules/ollama/data:/root/.ollama
+
+    expose:
+      - "11434"
+
+    networks:
+      sprout_net:
+        ipv4_address: ${OLLAMA_FIXED_IP}

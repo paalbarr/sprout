@@ -1,13 +1,13 @@
 ollama:
-    image: ollama/ollama:${OLLAMA_VERSION:-latest}
-    container_name: sprout-ollama
-    restart: unless-stopped
+  image: ollama/ollama:${OLLAMA_VERSION:-latest}
+  container_name: sprout-ollama
+  restart: unless-stopped
 
-    volumes:
-      - ./modules/ollama/data:/root/.ollama
+  volumes:
+    - ./modules/ollama/data:/root/.ollama
 
-    expose:
-      - "11434"
+  expose:
+    - "11434"
 
-    networks:
-      - sprout_net
+  networks:
+    - sprout_net

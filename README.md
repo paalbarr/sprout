@@ -149,7 +149,14 @@ Remember: before starting the Runtime, configure either:
 
 ### Installation
 
-Clone the repository.
+Get install file
+
+```bash
+curl -fsSL -o install.sh \
+https://raw.githubusercontent.com/paalbarr/sprout/main/install.sh
+```
+
+Or if you prefer, you can clone the repository.
 
 ```bash
 git clone https://github.com/paalbarr/sprout.git

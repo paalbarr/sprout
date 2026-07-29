@@ -1704,6 +1704,9 @@ cat > HELP.md <<'EOF_HELP_MD'
 - `./sprout health` — Health/readiness checks + module doctor
 - `./sprout auth [uuid]` — List/approve Control UI device pairing
 - `./sprout token [regen]` — Show, or regenerate, the OpenClaw gateway token
+- `./sprout send onboard <params>` — Non-interactive passthrough to `openclaw onboard`
+  inside the container. Only `onboard` is supported — other openclaw commands
+  require manual intervention directly on the container.
 
 ## Garden + Module Manager
 - `./sprout update` — Refresh the local Garden index cache

@@ -38,7 +38,7 @@ Built on a **modular, plug-and-play architecture**, Sprout enables one-command d
 
 ℹ️ **Release status:**
 
-First public **alpha** release of Sprout.
+First public **beta** release of Sprout.
 
 This version provides a portable environment for ARM and x86 platforms. It is intended for evaluation, testing, and early adopters.
 
@@ -136,11 +136,14 @@ https://login.tailscale.com/admin/settings/keys
 
 OpenClaw requires at least one AI provider.
 
-Today, Sprout supports only frontier model providers such as OpenAI and Anthropic 😔.
+By default, Sprout automatically provisions the Bootstrap Module published by the Garden. The default bootstrap downloads and installs the local inference Runtime (`ollama`) together with the default bootstrap model (`tinyllama`), so no external AI provider is required.
 
-Don't worry—native support for local models (Ollama and others) is already on our roadmap and will be available soon.
+Alternatively, you may configure one or more frontier providers such as OpenAI or Anthropic by supplying their API keys.
 
-Remember: you'll need at least one provider API key before starting.
+Remember: before starting the Runtime, configure either:
+
+- a local Bootstrap Module (provisioned automatically), or
+- at least one frontier provider API key.
 
 ---
 
@@ -156,66 +159,17 @@ cd sprout
 Make the script executable.
 
 ```bash
-chmod +x sprout.sh
-```
-
-Generate the stack.
-
-```bash
-./sprout.sh
-```
-
-This creates:
-
-```text
-openclaw-stack/
-├── .env
-├── docker-compose.yml
-├── start.sh
-├── stop.sh
-├── restart.sh
-├── recreate.sh
-├── logs.sh
-├── inspect.sh
-└── ...
+chmod +x install.sh
+./install.sh
 ```
 
 ---
 
-### Configure
-
-Open the generated environment.
-
-```bash
-cd openclaw-stack
-```
-
-Edit the environment variables.
+### Configure and launch
+Generate the stack and configure bootstrap model.
 
 ```bash
-nano .env
-```
-
-Replace the placeholders with your own values.
-
-Required:
-
-- OPENCLAW_GATEWAY_TOKEN (here you can put anything 😉)
-- TS_AUTHKEY
-
-At least one of:
-
-- OPENAI_API_KEY
-- ANTHROPIC_API_KEY
-
----
-
-### Start
-
-Launch the stack.
-
-```bash
-./start.sh
+./sprout start
 ```
 
 Sprout will automatically:
@@ -226,20 +180,30 @@ Sprout will automatically:
 - Configure `tailscale serve`
 - Display the public Tailnet URL
 
+This creates:
+
+```text
+agents/
+├── openclaw agents configurated
+conf/
+├── openclaw.json
+stack/
+├── intallation files and dirs
+workspace/
+├── shared files for openclaw
+```
+
 ---
 
 ### Connect
 
-Open the URL shown by `start.sh`.
+Open the URL shown by `./sprout start` in the configuration process.
 
 Use:
 
 ```
-WebSocket URL:
-wss://<your-tailnet-url>/
-
-Gateway Token:
-<OPENCLAW_GATEWAY_TOKEN>
+WebSocket URL: wss://<your-fqdn>/
+Token: <OPENCLAW_GATEWAY_TOKEN>
 ```
 
 Leave **Password** empty.
@@ -251,7 +215,7 @@ Leave **Password** empty.
 The first browser connection requires approval.
 
 ```bash
-./approve-device.sh <device-uuid>
+./sprout auth <UUID-shown-by-the-dashboard>
 ```
 
 Reconnect the browser.

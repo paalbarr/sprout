@@ -42,3 +42,9 @@ modules:
     repository: https://github.com/paalbarr/sprout.git
     branch: garden
     path: ollama
+  - name: openai-oauth
+    version: 1.0.0
+    description: Registers OpenAI as an OpenClaw provider through the native "Sign in with ChatGPT" OAuth device-code flow, instead of an API key.
+    repository: https://github.com/paalbarr/sprout.git
+    branch: garden
+    path: openai-oauth

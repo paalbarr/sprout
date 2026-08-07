@@ -1,0 +1,8 @@
+name: openai-oauth
+version: 1.0.0
+description: Registers OpenAI/ChatGPT as an OpenClaw provider via the native "Sign in with ChatGPT" OAuth device-code flow (ChatGPT Plus/Pro/Team/Business), instead of an API key.
+author: paalbarr
+license: Apache 2.0
+repository: https://github.com/paalbarr/sprout.git
+depends:
+provides: openai-oauth-inference

@@ -1,8 +1,8 @@
 name: tinyllama
 version: 1.0.0
 description: Pulls TinyLlama into Ollama and registers it as the default OpenClaw local-inference provider.
-author: Sprout Contributors
-license: MIT
+author: paalbarr
+license: Apache 2.0
 repository: https://ollama.com/library/tinyllama
 depends:
   - ollama

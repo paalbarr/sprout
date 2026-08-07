@@ -1,21 +1,6 @@
 #!/bin/sh
 # ==============================================================================
 # garden/ollama/module.sh — lifecycle implementation for the "ollama" module.
-#
-# Downloaded and sourced (". modules/ollama/module.sh", never executed) by
-# the generated ./sprout CLI inside provision_one_module() — it therefore
-# runs in the same shell process as the Core and can freely call the
-# functions ./sprout already defines: log_info / log_warn / log_error /
-# log_fatal and compose_cmd() (SPR-001 §8.3 — modules are never invoked
-# directly by users).
-#
-# Scope (SPR-001 §8.1 — Self-Contained, but minimal): this module owns only
-# the Ollama *runtime*. It installs the engine, starts the server, and
-# validates that its API answers. It does not pull any model and does not
-# touch OpenClaw configuration — that is the "tinyllama" module's job
-# (garden/tinyllama/), which depends on this one. Splitting them means any
-# other module needing local inference can depend on "ollama" alone and
-# bring its own model/provider wiring.
 # ==============================================================================
 set -eu
 

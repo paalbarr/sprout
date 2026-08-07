@@ -1,25 +1,6 @@
 #!/bin/sh
 # ==============================================================================
 # garden/tinyllama/module.sh — lifecycle implementation for the "tinyllama"
-# module: the Garden's reference Bootstrap Module (SPR-001 §7, §8.3).
-#
-# Downloaded and sourced (". modules/tinyllama/module.sh", never executed) by
-# the generated ./sprout CLI inside provision_one_module() — it runs in the
-# same shell process as the Core and can freely call log_info / log_warn /
-# log_error / log_fatal / compose_cmd(), exactly like garden/ollama/module.sh.
-#
-# depends: [ollama] in module.yaml means ./sprout always provisions "ollama"
-# to READY before this module's own lifecycle starts (SPR-001 §7.1) — so
-# every function below can assume the "ollama" service is already running
-# and reachable.
-#
-# This module owns no container of its own (no compose.yml): it operates
-# against the already-running "ollama" service to (1) pull the TinyLlama
-# model and (2) register it as an OpenClaw provider. Per SPR-001 §8.3:
-# "every Bootstrap Module that provides local AI inference capabilities
-# SHALL automatically provision and register one or more model providers
-# into the OpenClaw Runtime as part of its lifecycle" — that is exactly
-# module_provision() + module_register() below.
 # ==============================================================================
 set -eu
 
@@ -146,11 +127,6 @@ module_provision() {
   compose_cmd exec -T "${OLLAMA_SERVICE}" ollama pull "${model_name}"
 }
 
-# Register (SPR-001 §8.3/§8.4): "For AI inference modules, Register SHALL
-# automatically create or update the corresponding OpenClaw provider
-# configuration." A Bootstrap Module must not reach READY until this
-# succeeds — invoked between Provision and Validate by ./sprout.
-#
 # This exact sequence was confirmed by hand against a running stack before
 # being wired in here — each step exists because of a real failure mode:
 #

@@ -19,26 +19,29 @@
 # inference modules, Register SHALL automatically create or update the
 # corresponding OpenClaw provider configuration."
 #
-# ⚠ STATUS: a real run on 2026-08-07 (`./sprout install openai-oauth`) with
-# --auth-choice "openai-oauth" (a guess) silently walked through every
-# prompt as "keep current values" — no device-code/URL/ChatGPT sign-in was
-# ever printed, and the existing ollama/tinyllama config was left
-# untouched, while still exiting 0. module_validate()'s hard failure on a
-# missing "openai" entry in `openclaw models status` was the only thing
-# that caught it.
-#
-# The real value was then confirmed against the actual
-# `openclaw onboard --help` output from the running stack (2026-08-07):
-# it's "openai-device-code" (listed among --auth-choice's enum, alongside
-# "openai-api-key" for the key-based flow and plain "openai" for something
-# else entirely — device-code is the one that matches "Sign in with
-# ChatGPT"). --non-interactive/--accept-risk were added below to skip the
-# same boilerplate prompts tinyllama's onboard call skips (existing-config
-# confirmation, model check, channels) — device-code auth itself is not a
-# "prompt" in the --non-interactive sense, it's a required step of that
-# --auth-choice, so it should still print its URL/code and block for
-# approval. This fix has NOT yet been re-run end-to-end against the real
-# stack — the previous run only proved the old value was wrong.
+# ⚠ STATUS / history of things confirmed by actually running this against
+# a real stack (2026-08-07), in order:
+#   1. --auth-choice "openai-oauth" (a guess) silently walked through every
+#      prompt as "keep current values" — no device-code/URL was ever
+#      printed, existing config untouched, exit 0. Caught only by
+#      module_validate()'s hard failure on a missing "openai" entry in
+#      `openclaw models status`.
+#   2. The real --auth-choice value, confirmed from `openclaw onboard
+#      --help` on the running stack, is "openai-device-code" ("openai" and
+#      "openai-api-key" are different auth choices — the latter is the
+#      key-based flow this module is explicitly NOT using).
+#   3. Adding --non-interactive --accept-risk (mirroring tinyllama's
+#      onboard call) broke it outright: "Auth choice 'openai-device-code'
+#      requires interactive mode. The OpenAI provider plugin does not
+#      implement non-interactive setup." Unlike tinyllama's
+#      custom-api-key flow, this provider plugin has no headless path —
+#      module_provision() below must run onboard fully interactively, and
+#      the user needs a real terminal attached when `./sprout install
+#      openai-oauth` runs (which is the normal case; it's the user
+#      invoking it directly).
+# Still NOT yet confirmed end-to-end: that the interactive onboard wizard
+# actually reaches and displays a ChatGPT device-code URL/prompt with
+# --auth-choice openai-device-code. Re-run and check for that specifically.
 # ==============================================================================
 set -eu
 
@@ -86,11 +89,17 @@ module_configure() {
 # Runs the "Sign in with ChatGPT" device-code flow inside the openclaw
 # container. Idempotent: if a valid auth profile already exists for this
 # provider, `openclaw onboard` is expected to no-op or refresh it rather
-# than fail (confirm this against your stack — see TODO above).
+# than fail (confirm this against your stack).
 #
 # The user needs a ChatGPT Plus, Pro, Team or Business account, with device
 # code authorization enabled in their ChatGPT security settings, to
 # complete this.
+#
+# MUST run interactively (no --non-interactive): the openai-device-code
+# provider plugin has no non-interactive/headless implementation (confirmed
+# by the stack itself refusing to run otherwise — see STATUS note above).
+# ./sprout install openai-oauth therefore needs a real terminal attached
+# when it reaches this phase.
 #
 # Arguments:
 #   None
@@ -100,16 +109,14 @@ module_configure() {
 #
 module_provision() {
   log_info "[openai-oauth] Starting device-code sign-in (openclaw onboard --auth-choice ${AUTH_CHOICE})..."
-  log_info "[openai-oauth] Follow the URL/code openclaw prints below. It will wait up to ${AUTH_TIMEOUT}s for approval."
+  log_info "[openai-oauth] This step is interactive — follow the prompts and the URL/code openclaw prints below."
+  log_info "[openai-oauth] It will wait up to ${AUTH_TIMEOUT}s for approval."
 
-  # No -T: device-code output (URL + short code) needs to reach the user
-  # live in their terminal, not get swallowed. --non-interactive skips the
-  # same boilerplate prompts tinyllama's onboard call skips; it should not
-  # skip the device-code exchange itself, which is a required step of this
-  # --auth-choice rather than an interactive prompt.
+  # No -T, no --non-interactive: this provider plugin requires interactive
+  # mode (confirmed against the real stack — see STATUS note at the top of
+  # this file). Output/input need to flow straight to/from the user's
+  # terminal.
   if ! compose_cmd exec "${OPENCLAW_SERVICE}" openclaw onboard \
-      --non-interactive \
-      --accept-risk \
       --auth-choice "${AUTH_CHOICE}" \
       --flow quickstart \
       --skip-channels \
@@ -173,7 +180,8 @@ module_register() {
 # The last check below is the ONLY thing standing between "the onboard
 # command exited 0" and "a provider was actually registered" — onboard can
 # (and, on 2026-08-07, did) exit 0 while silently keeping the pre-existing
-# config untouched if --auth-choice isn't recognized. Keep this fatal.
+# config untouched if --auth-choice isn't recognized/valid for this flow.
+# Keep this fatal.
 #
 # Arguments:
 #   None
@@ -202,7 +210,7 @@ module_validate() {
     # Fatal on purpose (SPR-001 §8.3: no READY until Register actually
     # succeeds) — see the STATUS note at the top of this file for why this
     # must not be softened back to a warning.
-    log_error "[openai-oauth] No 'openai' provider found in 'openclaw models status' — the OAuth sign-in did not actually register a provider. AUTH_CHOICE='${AUTH_CHOICE}' is unconfirmed; run 'docker compose exec openclaw openclaw onboard --help' to find the real value."
+    log_error "[openai-oauth] No 'openai' provider found in 'openclaw models status' — the OAuth sign-in did not actually register a provider. Re-check AUTH_CHOICE='${AUTH_CHOICE}' and re-run interactively."
     return 1
   fi
 

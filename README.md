@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="sprout-logo.webp" alt="Sprout Logo" width="200"/>
+  <img src="sprout-logo.png" alt="Sprout Logo" width="200"/>
 </p>
 
 <p align="center">

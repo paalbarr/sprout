@@ -1,6 +1,6 @@
 #!/bin/sh
 # ==============================================================================
-# install.sh (0.8 — Garden-based module system)
+# install.sh (0.8.4 — Garden-based module system)
 # ------------------------------------------------------------------------------
 # Generates two things, side by side in the current directory:
 #
@@ -56,7 +56,7 @@
 # ==============================================================================
 set -eu
 
-SPROUT_VERSION="0.8"
+SPROUT_VERSION="0.8.4"
 
 # -------- Banner — printed before any generation logic runs. --------
 printf '\n\n'
@@ -934,12 +934,27 @@ module_compose_file() {
 regenerate_modules_compose() {
   echo "services:" > "${COMPOSE_MODULES}.new"
   wrote_any="no"
+  # NOTE: loop variable is deliberately "cm" (compose-module), not "module".
+  # This function is called from inside provision_one_module(), which keeps
+  # its own module currently being provisioned in a global "module" variable
+  # (this codebase avoids "local" for strict POSIX /bin/sh compliance, so
+  # every variable here is effectively global). Reusing "module" as the loop
+  # variable here silently clobbered that outer variable for the rest of
+  # provision_one_module() once this function returned — every log line and
+  # module_state_set call after the first regenerate_modules_compose() call
+  # would then act on whatever module happened to sort last in
+  # "${MODULES_DIR}"/*/, instead of the module actually being installed
+  # (confirmed 2026-08-11: installing "openai-oauth" alongside an existing
+  # "tinyllama" install caused every phase after the first to log
+  # "...tinyllama..." and, critically, recorded the final READY state
+  # against "tinyllama" instead of "openai-oauth", leaving the real module
+  # stuck at INSTALLING forever despite installing correctly).
   for module_dir in "${MODULES_DIR}"/*/; do
     [ -d "${module_dir}" ] || continue
-    module="$(basename "${module_dir}")"
-    status="$(module_state_status "${module}")"
+    cm="$(basename "${module_dir}")"
+    status="$(module_state_status "${cm}")"
     [ "${status}" != "NOT_INSTALLED" ] || continue
-    compose_file="$(module_compose_file "${module}")"
+    compose_file="$(module_compose_file "${cm}")"
     if [ -n "${compose_file}" ]; then
       # A module's compose.yaml can arrive in any indentation style: a bare
       # fragment already indented 2 spaces under an implied "services:", a
@@ -984,7 +999,7 @@ regenerate_modules_compose() {
       # exactly why a later "docker compose pull/up <module>" would fail
       # with a cryptic "no such service" — surfacing it here up front makes
       # that failure traceable instead of silent.
-      log_warn "${module} has no compose.yaml in modules/${module}/ — it will define no container. If it should have its own service, check the Garden entry (repository/branch/path) that downloaded it."
+      log_warn "${cm} has no compose.yaml in modules/${cm}/ — it will define no container. If it should have its own service, check the Garden entry (repository/branch/path) that downloaded it."
     fi
   done
   [ "${wrote_any}" = "yes" ] || echo "services: {}" > "${COMPOSE_MODULES}.new"

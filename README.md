@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="sprout-logo.png" alt="Sprout Logo" width="200"/>
+  <img src="sprout-logo.webp" alt="Sprout Logo" width="200"/>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 ---
 
-# ✨ Sprout?... What is that?
+# 🌱 Sprout?... What is that?
 
 **Sprout** is a free, open-source, lightweight deployment toolkit for Local AI. Set up your environment quickly and safely.
 

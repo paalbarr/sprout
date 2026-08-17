@@ -48,3 +48,11 @@ modules:
     repository: https://github.com/paalbarr/sprout.git
     branch: garden
     path: openai-oauth
+  - name: qwen3-4b
+    version: 1.0.0
+    description: Pulls Qwen3 4B into Ollama and registers it as an additional OpenClaw local-inference provider, alongside any already-configured model.
+    repository: https://github.com/paalbarr/sprout.git
+    branch: garden
+    path: qwen3-4b
+    depends:
+      - ollama    

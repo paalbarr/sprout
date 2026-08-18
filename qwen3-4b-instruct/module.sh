@@ -8,6 +8,17 @@ set -eu
 OLLAMA_SERVICE="ollama"
 CUSTOM_PROVIDER_ID="ollama-qwen3-4b-instruct"
 
+# Placeholder value for `openclaw models auth paste-api-key`. Ollama's
+# OpenAI-compatible endpoint does not check the Authorization header at
+# all, but OpenClaw's generic custom-api-key auth path still requires an
+# auth profile to exist on file for the provider — a custom provider-id
+# (anything other than the literal "ollama") does not get the synthetic,
+# no-key auth that OpenClaw's native ollama plugin gets automatically.
+# Confirmed 2026-08-17 against a real stack: without this, agent runs fail
+# with "No API key found for provider '<id>' ... missing-provider-auth"
+# even though onboard itself completed successfully.
+PLACEHOLDER_API_KEY="ollama-local-no-key-needed"
+
 # env_value <KEY> — reads KEY=value from .env (first match, empty if
 # absent). Same helper as garden/tinyllama/module.sh; read directly instead
 # of relying on exported shell vars, since ./sprout does not (and should
@@ -211,6 +222,18 @@ module_register() {
     return 1
   fi
 
+  # Custom provider-ids don't get OpenClaw's automatic synthetic auth (only
+  # the literal "ollama" provider does) — without this, the agent fails at
+  # runtime with "No API key found for provider ... missing-provider-auth"
+  # even though onboard above completed successfully. Piped via stdin with
+  # -T (no pty) since paste-api-key is an interactive "paste a value"
+  # prompt with no --key/--value flag; Ollama never validates the value.
+  log_info "[qwen3-4b-instruct] Registering a placeholder auth profile for '${CUSTOM_PROVIDER_ID}' (Ollama does not validate API keys, but OpenClaw's custom-api-key auth path requires one on file)..."
+  if ! printf '%s\n' "${PLACEHOLDER_API_KEY}" | compose_cmd exec -T openclaw openclaw models auth paste-api-key --provider "${CUSTOM_PROVIDER_ID}" >/dev/null 2>&1; then
+    log_error "[qwen3-4b-instruct] Failed to register a placeholder auth profile for '${CUSTOM_PROVIDER_ID}' via 'openclaw models auth paste-api-key'."
+    return 1
+  fi
+
   log_info "[qwen3-4b-instruct] Restarting openclaw to apply the new provider configuration..."
   compose_cmd restart openclaw
   wait_openclaw_healthy 30 || {
@@ -285,6 +308,12 @@ module_validate() {
     return 1
   fi
 
+  log_info "[qwen3-4b-instruct] Confirming '${CUSTOM_PROVIDER_ID}' is not listed under Missing auth..."
+  if echo "${models_now}" | grep -A20 "^Missing auth" | grep -q "${CUSTOM_PROVIDER_ID}"; then
+    log_error "[qwen3-4b-instruct] '${CUSTOM_PROVIDER_ID}' still shows up under 'Missing auth' in 'openclaw models status' — the placeholder auth profile did not take. Agent runs against this model would fail with 'missing-provider-auth'."
+    return 1
+  fi
+
   log_info "[qwen3-4b-instruct] Confirming tinyllama (if previously installed) is still registered..."
   if compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "tinyllama"; then
     if ! echo "${models_now}" | grep -qi "tinyllama"; then
@@ -298,21 +327,32 @@ module_validate() {
 }
 
 #
-# Removes the qwen3:4b-instruct model from Ollama. Does not touch the
-# "ollama" module itself, its data directory, or any other model (SPR-001
-# §8.1 — Independent: modules never reach into another module's
-# files/state).
+# Removes the qwen3:4b-instruct model from Ollama AND deregisters the
+# '${CUSTOM_PROVIDER_ID}' provider entry from OpenClaw's config (confirmed
+# path: models.providers.<id>, via `openclaw config unset` — verified
+# 2026-08-18 against a real stack with `openclaw config get
+# models.providers`). Does not touch the "ollama" module itself, its data
+# directory, or any other model (SPR-001 §8.1 — Independent: modules never
+# reach into another module's files/state).
 #
 # Arguments:
 #   None
 #
 # Returns:
-#   0 (best-effort; a missing model or a stopped "ollama" service is not a
-#   fatal error here).
+#   0 (best-effort; a missing model, a missing config entry, or a stopped
+#   "ollama"/"openclaw" service is not a fatal error here — the point is to
+#   leave things as clean as possible, not to block removal on it).
 #
 module_remove() {
   model_name="$(qwen3_4b_instruct_model)"
   log_info "[qwen3-4b-instruct] Removing ${model_name} from Ollama..."
   compose_cmd exec -T "${OLLAMA_SERVICE}" ollama rm "${model_name}" 2>/dev/null || log_warn "[qwen3-4b-instruct] Could not remove ${model_name} (is the 'ollama' module still running?)."
-  log_warn "[qwen3-4b-instruct] This does not remove the '${CUSTOM_PROVIDER_ID}' entry from openclaw's config — clean that up manually with 'openclaw configure' if desired."
+
+  log_info "[qwen3-4b-instruct] Deregistering '${CUSTOM_PROVIDER_ID}' from openclaw's config..."
+  if compose_cmd exec -T openclaw openclaw config unset "models.providers.${CUSTOM_PROVIDER_ID}" >/dev/null 2>&1; then
+    compose_cmd restart openclaw >/dev/null 2>&1 || log_warn "[qwen3-4b-instruct] Could not restart openclaw after unset — the stale entry may linger in memory until the next restart."
+    log_info "[qwen3-4b-instruct] '${CUSTOM_PROVIDER_ID}' deregistered."
+  else
+    log_warn "[qwen3-4b-instruct] Could not deregister '${CUSTOM_PROVIDER_ID}' automatically — clean it up manually with: openclaw config unset models.providers.${CUSTOM_PROVIDER_ID}"
+  fi
 }

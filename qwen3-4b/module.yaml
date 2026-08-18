@@ -1,9 +1,0 @@
-name: qwen3-4b
-version: 1.0.0
-description: Pulls Qwen3 4B into Ollama and registers it as an additional OpenClaw local-inference provider, alongside any already-configured model (e.g. tinyllama) rather than replacing it.
-author: paalbarr
-license: Apache 2.0
-repository: https://github.com/paalbarr/sprout.git
-depends:
-  - ollama
-provides: qwen3-4b-local-inference

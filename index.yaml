@@ -44,15 +44,15 @@ modules:
     path: ollama
   - name: openai-oauth
     version: 1.0.0
-    description: Registers OpenAI as an OpenClaw provider through the native "Sign in with ChatGPT" OAuth device-code flow, instead of an API key.
+    description: Registers OpenAI/ChatGPT as an OpenClaw provider via the native "Sign in with ChatGPT" OAuth device-code flow, instead of an API key.
     repository: https://github.com/paalbarr/sprout.git
     branch: garden
     path: openai-oauth
-  - name: qwen3-4b
+  - name: qwen3-4b-instruct
     version: 1.0.0
-    description: Pulls Qwen3 4B into Ollama and registers it as an additional OpenClaw local-inference provider, alongside any already-configured model.
+    description: Pulls Qwen3 4B Instruct into Ollama and registers it as an additional OpenClaw local-inference provider, alongside any already-configured model.
     repository: https://github.com/paalbarr/sprout.git
     branch: garden
-    path: qwen3-4b
+    path: qwen3-4b-instruct
     depends:
-      - ollama    
+      - ollama

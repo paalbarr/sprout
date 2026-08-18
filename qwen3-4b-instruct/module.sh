@@ -1,12 +1,12 @@
 #!/bin/sh
 # ==============================================================================
-# garden/qwen3-4b/module.sh — lifecycle implementation for the "qwen3-4b"
-# module.
+# garden/qwen3-4b-instruct/module.sh — lifecycle implementation for the
+# "qwen3-4b-instruct" module.
 # ==============================================================================
 set -eu
 
 OLLAMA_SERVICE="ollama"
-CUSTOM_PROVIDER_ID="ollama-qwen3-4b"
+CUSTOM_PROVIDER_ID="ollama-qwen3-4b-instruct"
 
 # env_value <KEY> — reads KEY=value from .env (first match, empty if
 # absent). Same helper as garden/tinyllama/module.sh; read directly instead
@@ -16,22 +16,22 @@ env_value() {
   sed -n "s/^$1=//p" .env 2>/dev/null | head -n 1
 }
 
-# qwen3_4b_model — the model this module pulls and registers. Reads
-# QWEN3_4B_MODEL from .env so it stays overridable without editing this
-# file (e.g. to pin a different quantization), but always falls back to
-# "qwen3:4b" — this module's one job. Deliberately its own env var, not
+# qwen3_4b_instruct_model — the model this module pulls and registers.
+# Reads QWEN3_4B_INSTRUCT_MODEL from .env so it stays overridable without
+# editing this file (e.g. to pin a different quantization), but always
+# falls back to "qwen3:4b-instruct". Deliberately its own env var, not
 # tinyllama's OLLAMA_DEFAULT_MODEL, since that name implies "the" default
 # model and this module is explicitly meant to add a model, not replace it.
-qwen3_4b_model() {
-  value="$(env_value QWEN3_4B_MODEL)"
+qwen3_4b_instruct_model() {
+  value="$(env_value QWEN3_4B_INSTRUCT_MODEL)"
   if [ -n "${value}" ]; then
     echo "${value}"
   else
-    echo "qwen3:4b"
+    echo "qwen3:4b-instruct"
   fi
 }
 
-qwen3_4b_base_url() {
+qwen3_4b_instruct_base_url() {
   value="$(env_value OLLAMA_BASE_URL)"
   if [ -n "${value}" ]; then
     echo "${value}"
@@ -88,7 +88,7 @@ openclaw_models_status() {
 #   0 always.
 #
 module_install() {
-  log_info "[qwen3-4b] No separate image to install (uses the 'ollama' module's engine)."
+  log_info "[qwen3-4b-instruct] No separate image to install (uses the 'ollama' module's engine)."
   return 0
 }
 
@@ -103,13 +103,13 @@ module_install() {
 #   0 always.
 #
 module_configure() {
-  log_info "[qwen3-4b] Nothing to configure ahead of provisioning."
+  log_info "[qwen3-4b-instruct] Nothing to configure ahead of provisioning."
   return 0
 }
 
 #
 # Waits for the Ollama API (owned by the "ollama" module) and pulls the
-# qwen3:4b model into it (~2.7GB download).
+# qwen3:4b-instruct model into it (~2.7GB download).
 #
 # Arguments:
 #   None
@@ -119,9 +119,9 @@ module_configure() {
 #   fails.
 #
 module_provision() {
-  model_name="$(qwen3_4b_model)"
+  model_name="$(qwen3_4b_instruct_model)"
 
-  log_info "[qwen3-4b] Waiting for the Ollama API (via the 'ollama' module)..."
+  log_info "[qwen3-4b-instruct] Waiting for the Ollama API (via the 'ollama' module)..."
   attempt=1
   while [ "${attempt}" -le 30 ]; do
     if compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list >/dev/null 2>&1; then
@@ -131,11 +131,11 @@ module_provision() {
     sleep 2
   done
   if [ "${attempt}" -gt 30 ]; then
-    log_error "[qwen3-4b] Ollama API did not become available. Is the 'ollama' module installed and READY?"
+    log_error "[qwen3-4b-instruct] Ollama API did not become available. Is the 'ollama' module installed and READY?"
     return 1
   fi
 
-  log_info "[qwen3-4b] Pulling model: ${model_name} (this can take a while depending on your connection)..."
+  log_info "[qwen3-4b-instruct] Pulling model: ${model_name} (this can take a while depending on your connection)..."
   compose_cmd exec -T "${OLLAMA_SERVICE}" ollama pull "${model_name}"
 }
 
@@ -160,23 +160,23 @@ module_provision() {
 #   model disappeared from openclaw's models status as a side effect.
 #
 module_register() {
-  base_url="$(qwen3_4b_base_url)"
-  model_name="$(qwen3_4b_model)"
+  base_url="$(qwen3_4b_instruct_base_url)"
+  model_name="$(qwen3_4b_instruct_model)"
 
   if ! openclaw_is_healthy; then
-    log_warn "[qwen3-4b] openclaw is unhealthy — restarting once before continuing."
+    log_warn "[qwen3-4b-instruct] openclaw is unhealthy — restarting once before continuing."
     compose_cmd restart openclaw
     wait_openclaw_healthy 30 || {
-      log_error "[qwen3-4b] openclaw is still unhealthy after a restart."
+      log_error "[qwen3-4b-instruct] openclaw is still unhealthy after a restart."
       compose_cmd logs --tail 30 openclaw 2>&1 || true
       return 1
     }
-    log_info "[qwen3-4b] openclaw recovered."
+    log_info "[qwen3-4b-instruct] openclaw recovered."
   fi
 
   models_before="$(openclaw_models_status)"
 
-  log_info "[qwen3-4b] Registering ${model_name} with OpenClaw as provider '${CUSTOM_PROVIDER_ID}' (openclaw onboard --auth-choice custom-api-key)..."
+  log_info "[qwen3-4b-instruct] Registering ${model_name} with OpenClaw as provider '${CUSTOM_PROVIDER_ID}' (openclaw onboard --auth-choice custom-api-key)..."
   onboard_out="onboard_result.json"
   onboard_err="onboard_err.log"
   if ! compose_cmd exec -T openclaw openclaw onboard \
@@ -196,25 +196,25 @@ module_register() {
       --skip-health \
       --no-install-daemon \
       --json > "${onboard_out}" 2> "${onboard_err}"; then
-    log_error "[qwen3-4b] openclaw onboard failed:"
+    log_error "[qwen3-4b-instruct] openclaw onboard failed:"
     cat "${onboard_err}" >&2 2>/dev/null || true
     cat "${onboard_out}" >&2 2>/dev/null || true
     rm -f "${onboard_out}" "${onboard_err}"
     return 1
   fi
   rm -f "${onboard_out}" "${onboard_err}"
-  log_info "[qwen3-4b] onboard completed."
+  log_info "[qwen3-4b-instruct] onboard completed."
 
-  log_info "[qwen3-4b] Restoring gateway.bind=lan (onboard's quickstart flow forces loopback)..."
+  log_info "[qwen3-4b-instruct] Restoring gateway.bind=lan (onboard's quickstart flow forces loopback)..."
   if ! compose_cmd exec -T openclaw openclaw config set gateway.bind lan >/dev/null 2>&1; then
-    log_error "[qwen3-4b] Failed to restore gateway.bind=lan."
+    log_error "[qwen3-4b-instruct] Failed to restore gateway.bind=lan."
     return 1
   fi
 
-  log_info "[qwen3-4b] Restarting openclaw to apply the new provider configuration..."
+  log_info "[qwen3-4b-instruct] Restarting openclaw to apply the new provider configuration..."
   compose_cmd restart openclaw
   wait_openclaw_healthy 30 || {
-    log_error "[qwen3-4b] openclaw did not come back up after restart."
+    log_error "[qwen3-4b-instruct] openclaw did not come back up after restart."
     compose_cmd logs --tail 30 openclaw 2>&1 || true
     return 1
   }
@@ -222,21 +222,22 @@ module_register() {
   models_after="$(openclaw_models_status)"
 
   if ! echo "${models_after}" | grep -qi "qwen3"; then
-    log_error "[qwen3-4b] 'qwen3' not found in 'openclaw models status' after onboard — registration did not actually take effect."
+    log_error "[qwen3-4b-instruct] 'qwen3' not found in 'openclaw models status' after onboard — registration did not actually take effect."
     return 1
   fi
 
   # Coexistence check: if tinyllama was registered before this ran, it must
   # still be there. This is the concrete, checkable version of "did adding
-  # qwen3-4b silently overwrite the existing model" — see header note.
+  # qwen3-4b-instruct silently overwrite the existing model" — see header
+  # note.
   if echo "${models_before}" | grep -qi "tinyllama" && ! echo "${models_after}" | grep -qi "tinyllama"; then
-    log_error "[qwen3-4b] 'tinyllama' was present in 'openclaw models status' before this run and is GONE after registering qwen3-4b."
-    log_error "[qwen3-4b] This means the two models do NOT coexist the way this module assumed — registering qwen3-4b overwrote tinyllama's provider config instead of adding alongside it."
-    log_error "[qwen3-4b] NOT marking this module READY. Check 'docker compose exec openclaw openclaw models status' and 'openclaw config get' to see what's actually configured, and re-onboard tinyllama manually if needed."
+    log_error "[qwen3-4b-instruct] 'tinyllama' was present in 'openclaw models status' before this run and is GONE after registering qwen3-4b-instruct."
+    log_error "[qwen3-4b-instruct] This means the two models do NOT coexist the way this module assumed — registering qwen3-4b-instruct overwrote tinyllama's provider config instead of adding alongside it."
+    log_error "[qwen3-4b-instruct] NOT marking this module READY. Check 'docker compose exec openclaw openclaw models status' and 'openclaw config get' to see what's actually configured, and re-onboard tinyllama manually if needed."
     return 1
   fi
 
-  log_info "[qwen3-4b] openclaw registered and healthy."
+  log_info "[qwen3-4b-instruct] openclaw registered and healthy."
 }
 
 #
@@ -253,53 +254,54 @@ module_register() {
 #   0 if every check passes, non-zero otherwise.
 #
 module_validate() {
-  model_name="$(qwen3_4b_model)"
+  model_name="$(qwen3_4b_instruct_model)"
 
-  log_info "[qwen3-4b] Validating model availability..."
+  log_info "[qwen3-4b-instruct] Validating model availability..."
   if ! compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "qwen3"; then
-    log_error "[qwen3-4b] ${model_name} not found in Ollama after provisioning."
+    log_error "[qwen3-4b-instruct] ${model_name} not found in Ollama after provisioning."
     return 1
   fi
-  log_info "[qwen3-4b] ${model_name} is available in Ollama."
+  log_info "[qwen3-4b-instruct] ${model_name} is available in Ollama."
 
-  log_info "[qwen3-4b] Validating openclaw is healthy..."
+  log_info "[qwen3-4b-instruct] Validating openclaw is healthy..."
   if ! openclaw_is_healthy; then
-    log_error "[qwen3-4b] openclaw is not healthy."
+    log_error "[qwen3-4b-instruct] openclaw is not healthy."
     return 1
   fi
 
-  log_info "[qwen3-4b] Validating gateway.bind was not left on loopback..."
+  log_info "[qwen3-4b-instruct] Validating gateway.bind was not left on loopback..."
   gw_bind="$(openclaw_config_get gateway.bind)"
   if [ "${gw_bind}" != "lan" ]; then
-    log_error "[qwen3-4b] gateway.bind is '${gw_bind}', expected 'lan' — nginx/Tailscale access would be broken."
+    log_error "[qwen3-4b-instruct] gateway.bind is '${gw_bind}', expected 'lan' — nginx/Tailscale access would be broken."
     return 1
   fi
 
-  log_info "[qwen3-4b] Checking openclaw's registered models..."
+  log_info "[qwen3-4b-instruct] Checking openclaw's registered models..."
   models_now="$(openclaw_models_status)"
   if echo "${models_now}" | grep -qi "qwen3"; then
-    log_info "[qwen3-4b] openclaw reports a qwen3 provider as configured."
+    log_info "[qwen3-4b-instruct] openclaw reports a qwen3 provider as configured."
   else
-    log_error "[qwen3-4b] Could not confirm a qwen3 provider in 'openclaw models status' output."
+    log_error "[qwen3-4b-instruct] Could not confirm a qwen3 provider in 'openclaw models status' output."
     return 1
   fi
 
-  log_info "[qwen3-4b] Confirming tinyllama (if previously installed) is still registered..."
+  log_info "[qwen3-4b-instruct] Confirming tinyllama (if previously installed) is still registered..."
   if compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "tinyllama"; then
     if ! echo "${models_now}" | grep -qi "tinyllama"; then
-      log_error "[qwen3-4b] tinyllama is still pulled in Ollama but missing from 'openclaw models status' — its OpenClaw registration appears to have been lost."
+      log_error "[qwen3-4b-instruct] tinyllama is still pulled in Ollama but missing from 'openclaw models status' — its OpenClaw registration appears to have been lost."
       return 1
     fi
-    log_info "[qwen3-4b] tinyllama is still registered alongside qwen3-4b."
+    log_info "[qwen3-4b-instruct] tinyllama is still registered alongside qwen3-4b-instruct."
   fi
 
   return 0
 }
 
 #
-# Removes the qwen3:4b model from Ollama. Does not touch the "ollama"
-# module itself, its data directory, or any other model (SPR-001 §8.1 —
-# Independent: modules never reach into another module's files/state).
+# Removes the qwen3:4b-instruct model from Ollama. Does not touch the
+# "ollama" module itself, its data directory, or any other model (SPR-001
+# §8.1 — Independent: modules never reach into another module's
+# files/state).
 #
 # Arguments:
 #   None
@@ -309,8 +311,8 @@ module_validate() {
 #   fatal error here).
 #
 module_remove() {
-  model_name="$(qwen3_4b_model)"
-  log_info "[qwen3-4b] Removing ${model_name} from Ollama..."
-  compose_cmd exec -T "${OLLAMA_SERVICE}" ollama rm "${model_name}" 2>/dev/null || log_warn "[qwen3-4b] Could not remove ${model_name} (is the 'ollama' module still running?)."
-  log_warn "[qwen3-4b] This does not remove the '${CUSTOM_PROVIDER_ID}' entry from openclaw's config — clean that up manually with 'openclaw configure' if desired."
+  model_name="$(qwen3_4b_instruct_model)"
+  log_info "[qwen3-4b-instruct] Removing ${model_name} from Ollama..."
+  compose_cmd exec -T "${OLLAMA_SERVICE}" ollama rm "${model_name}" 2>/dev/null || log_warn "[qwen3-4b-instruct] Could not remove ${model_name} (is the 'ollama' module still running?)."
+  log_warn "[qwen3-4b-instruct] This does not remove the '${CUSTOM_PROVIDER_ID}' entry from openclaw's config — clean that up manually with 'openclaw configure' if desired."
 }

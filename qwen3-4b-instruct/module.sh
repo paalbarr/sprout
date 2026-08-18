@@ -234,7 +234,32 @@ module_register() {
     return 1
   fi
 
-  log_info "[qwen3-4b-instruct] Restarting openclaw to apply the new provider configuration..."
+  # Confirmed 2026-08-18: OpenClaw's default tool profile ("coding") puts a
+  # full tool/function-calling schema in every request's system prompt,
+  # which alone runs ~18K tokens. Ollama loads this model with a 4096-token
+  # context window by default, so every real agent request was hard-failing
+  # with "request (18076 tokens) exceeds the available context size (4096
+  # tokens)" (visible as repeated 400s in `docker compose logs ollama`) —
+  # the run never even reached generation. Raising Ollama's context window
+  # is not a real fix on this hardware: prompt-eval on a CPU-only, ~12GB RAM
+  # host runs well under 30 tokens/sec, so evaluating an 18K-token prompt
+  # would take on the order of 10 minutes before any reply starts, and the
+  # KV-cache RAM cost scales with context size too. The actual fix is the
+  # same one tinyllama's module already applies: scope `tools.byProvider` to
+  # this provider/model only (deny all tools) so the huge tool-schema
+  # preamble is never sent to it, leaving only the real conversation in the
+  # prompt. This does mean this model can't call tools/skills — acceptable
+  # for a small local fallback model; the OAuth/API-key providers keep full
+  # tool access via the untouched global tools.profile.
+  log_info "[qwen3-4b-instruct] Disabling tool-calling for ${CUSTOM_PROVIDER_ID}/${model_name} (the resulting tool-schema prompt is too large for this model's context window on this hardware)..."
+  if ! compose_cmd exec -T openclaw openclaw config set tools.byProvider \
+      "{\"${CUSTOM_PROVIDER_ID}/${model_name}\":{\"profile\":\"minimal\",\"deny\":[\"*\"]}}" \
+      --strict-json --merge >/dev/null 2>&1; then
+    log_error "[qwen3-4b-instruct] Failed to set tools.byProvider for ${CUSTOM_PROVIDER_ID}/${model_name}."
+    return 1
+  fi
+
+  log_info "[qwen3-4b-instruct] Restarting openclaw to apply gateway.bind + auth + tools.byProvider..."
   compose_cmd restart openclaw
   wait_openclaw_healthy 30 || {
     log_error "[qwen3-4b-instruct] openclaw did not come back up after restart."
@@ -349,10 +374,39 @@ module_remove() {
   compose_cmd exec -T "${OLLAMA_SERVICE}" ollama rm "${model_name}" 2>/dev/null || log_warn "[qwen3-4b-instruct] Could not remove ${model_name} (is the 'ollama' module still running?)."
 
   log_info "[qwen3-4b-instruct] Deregistering '${CUSTOM_PROVIDER_ID}' from openclaw's config..."
+  unset_ok=0
   if compose_cmd exec -T openclaw openclaw config unset "models.providers.${CUSTOM_PROVIDER_ID}" >/dev/null 2>&1; then
-    compose_cmd restart openclaw >/dev/null 2>&1 || log_warn "[qwen3-4b-instruct] Could not restart openclaw after unset — the stale entry may linger in memory until the next restart."
-    log_info "[qwen3-4b-instruct] '${CUSTOM_PROVIDER_ID}' deregistered."
+    unset_ok=1
+    log_info "[qwen3-4b-instruct] '${CUSTOM_PROVIDER_ID}' deregistered from models.providers."
   else
     log_warn "[qwen3-4b-instruct] Could not deregister '${CUSTOM_PROVIDER_ID}' automatically — clean it up manually with: openclaw config unset models.providers.${CUSTOM_PROVIDER_ID}"
+  fi
+
+  # `config unset` above only clears models.providers.<id> — confirmed
+  # 2026-08-18 against a real stack that OpenClaw keeps a SEPARATE "default
+  # model" pointer (shown as "Default: <provider>/<model>" in `openclaw
+  # models status`) that survives a provider unset untouched. If it was
+  # still pointing at this module's provider, agent runs would fail with
+  # "missing-provider-auth" against a now-deregistered provider. Reset it to
+  # tinyllama (this stack's bootstrap/always-present model) when available;
+  # otherwise leave it and warn, since picking an arbitrary fallback here
+  # would be a guess.
+  log_info "[qwen3-4b-instruct] Checking whether the default model still points at '${CUSTOM_PROVIDER_ID}'..."
+  default_line="$(compose_cmd exec -T openclaw openclaw models status 2>/dev/null | grep '^Default:' || true)"
+  if echo "${default_line}" | grep -q "${CUSTOM_PROVIDER_ID}"; then
+    log_warn "[qwen3-4b-instruct] Default model pointer still points at '${CUSTOM_PROVIDER_ID}' ('config unset' does not touch it) — resetting..."
+    if compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "tinyllama"; then
+      if compose_cmd exec -T openclaw openclaw models set ollama/tinyllama >/dev/null 2>&1; then
+        log_info "[qwen3-4b-instruct] Default model reset to ollama/tinyllama."
+      else
+        log_warn "[qwen3-4b-instruct] Failed to reset the default model — set one manually with: openclaw models set <provider>/<model>"
+      fi
+    else
+      log_warn "[qwen3-4b-instruct] No tinyllama fallback found to reset the default model to — set one manually with: openclaw models set <provider>/<model>"
+    fi
+  fi
+
+  if [ "${unset_ok}" = "1" ]; then
+    compose_cmd restart openclaw >/dev/null 2>&1 || log_warn "[qwen3-4b-instruct] Could not restart openclaw after cleanup — stale entries may linger in memory until the next restart."
   fi
 }

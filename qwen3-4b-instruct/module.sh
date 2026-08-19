@@ -51,6 +51,37 @@ qwen3_4b_instruct_base_url() {
   fi
 }
 
+# qwen3_4b_instruct_ctx — context window (tokens) to bake into the derived
+# tag built by module_provision(). Reads QWEN3_4B_INSTRUCT_NUM_CTX from
+# .env, falls back to 16384 (matches the OLLAMA_CONTEXT_LENGTH default in
+# garden/ollama/compose.yaml, though — see the header note — that env var
+# alone does NOT work for this specific model; this is the value that
+# actually takes effect).
+qwen3_4b_instruct_ctx() {
+  value="$(env_value QWEN3_4B_INSTRUCT_NUM_CTX)"
+  if [ -n "${value}" ]; then
+    echo "${value}"
+  else
+    echo "16384"
+  fi
+}
+
+# qwen3_4b_instruct_ctx_tag — the local Ollama tag this module actually
+# registers with OpenClaw and validates/removes. Built by module_provision()
+# from the base tag (qwen3_4b_instruct_model) via `ollama create`, with
+# num_ctx (qwen3_4b_instruct_ctx) baked into its own Modelfile — see header
+# note for why this indirection exists (the base tag's own Modelfile pins
+# num_ctx to 4096, which overrides the server-wide OLLAMA_CONTEXT_LENGTH
+# env var; only a model's own num_ctx reliably takes effect).
+qwen3_4b_instruct_ctx_tag() {
+  value="$(env_value QWEN3_4B_INSTRUCT_CTX_TAG)"
+  if [ -n "${value}" ]; then
+    echo "${value}"
+  else
+    echo "qwen3-4b-instruct-ctx"
+  fi
+}
+
 openclaw_is_healthy() {
   # Uses openclaw's own CLI ('openclaw health') instead of wget — same
   # reasoning as garden/tinyllama/module.sh: the openclaw image is
@@ -119,18 +150,24 @@ module_configure() {
 }
 
 #
-# Waits for the Ollama API (owned by the "ollama" module) and pulls the
-# qwen3:4b-instruct model into it (~2.7GB download).
+# Waits for the Ollama API (owned by the "ollama" module), pulls the base
+# qwen3:4b-instruct model into it (~2.7GB download), then builds a local
+# derived tag on top of it with a larger num_ctx explicitly baked in (see
+# header note: the base tag's own Modelfile pins num_ctx to 4096, which
+# silently overrides the server-wide OLLAMA_CONTEXT_LENGTH env var, so this
+# derived tag is the only reliable way to get more context for this model).
 #
 # Arguments:
 #   None
 #
 # Returns:
-#   0 on success, non-zero if the API never becomes reachable or the pull
-#   fails.
+#   0 on success, non-zero if the API never becomes reachable, the pull
+#   fails, or building the derived tag fails.
 #
 module_provision() {
   model_name="$(qwen3_4b_instruct_model)"
+  ctx_tag="$(qwen3_4b_instruct_ctx_tag)"
+  ctx_size="$(qwen3_4b_instruct_ctx)"
 
   log_info "[qwen3-4b-instruct] Waiting for the Ollama API (via the 'ollama' module)..."
   attempt=1
@@ -147,7 +184,35 @@ module_provision() {
   fi
 
   log_info "[qwen3-4b-instruct] Pulling model: ${model_name} (this can take a while depending on your connection)..."
-  compose_cmd exec -T "${OLLAMA_SERVICE}" ollama pull "${model_name}"
+  if ! compose_cmd exec -T "${OLLAMA_SERVICE}" ollama pull "${model_name}"; then
+    log_error "[qwen3-4b-instruct] Failed to pull ${model_name}."
+    return 1
+  fi
+
+  # Confirmed 2026-08-18 against a real stack (https://github.com/ollama/ollama/issues/10829):
+  # ${model_name}'s own published Modelfile bakes in "PARAMETER num_ctx
+  # 4096", which silently overrides OLLAMA_CONTEXT_LENGTH — reproduced here
+  # across three separate container recreates with that env var set to
+  # 8192, then 16384; n_ctx stayed pinned at 4096 every time. Writing the
+  # Modelfile content via printf (module.sh's own shell, correct variable
+  # expansion) and piping it as stdin to `sh -c "cat > <path>"` inside the
+  # container avoids nested-quoting problems with exec'ing a shell string
+  # directly; `ollama create -f` itself only documented as taking a file
+  # path, not stdin, hence writing to a temp file first rather than piping
+  # straight into `ollama create -f -` (unconfirmed whether that's
+  # supported).
+  modelfile_path="/tmp/qwen3-4b-instruct.Modelfile"
+  log_info "[qwen3-4b-instruct] Building '${ctx_tag}' — a local copy of ${model_name} with num_ctx=${ctx_size} baked in (works around ${model_name}'s own Modelfile pinning num_ctx to 4096, which overrides OLLAMA_CONTEXT_LENGTH)..."
+  if ! printf 'FROM %s\nPARAMETER num_ctx %s\n' "${model_name}" "${ctx_size}" \
+      | compose_cmd exec -T "${OLLAMA_SERVICE}" sh -c "cat > ${modelfile_path}"; then
+    log_error "[qwen3-4b-instruct] Failed to write the derived Modelfile inside the 'ollama' container."
+    return 1
+  fi
+  if ! compose_cmd exec -T "${OLLAMA_SERVICE}" ollama create "${ctx_tag}" -f "${modelfile_path}"; then
+    log_error "[qwen3-4b-instruct] Failed to build '${ctx_tag}' from ${model_name} via 'ollama create'."
+    return 1
+  fi
+  log_info "[qwen3-4b-instruct] '${ctx_tag}' built successfully (num_ctx=${ctx_size})."
 }
 
 # Register (SPR-001 §8.3/§8.4): "For AI inference modules, Register SHALL
@@ -173,6 +238,7 @@ module_provision() {
 module_register() {
   base_url="$(qwen3_4b_instruct_base_url)"
   model_name="$(qwen3_4b_instruct_model)"
+  ctx_tag="$(qwen3_4b_instruct_ctx_tag)"
 
   if ! openclaw_is_healthy; then
     log_warn "[qwen3-4b-instruct] openclaw is unhealthy — restarting once before continuing."
@@ -187,7 +253,7 @@ module_register() {
 
   models_before="$(openclaw_models_status)"
 
-  log_info "[qwen3-4b-instruct] Registering ${model_name} with OpenClaw as provider '${CUSTOM_PROVIDER_ID}' (openclaw onboard --auth-choice custom-api-key)..."
+  log_info "[qwen3-4b-instruct] Registering ${ctx_tag} (derived from ${model_name} with a larger num_ctx baked in) with OpenClaw as provider '${CUSTOM_PROVIDER_ID}' (openclaw onboard --auth-choice custom-api-key)..."
   onboard_out="onboard_result.json"
   onboard_err="onboard_err.log"
   if ! compose_cmd exec -T openclaw openclaw onboard \
@@ -196,7 +262,7 @@ module_register() {
       --auth-choice custom-api-key \
       --custom-provider-id "${CUSTOM_PROVIDER_ID}" \
       --custom-base-url "${base_url}/v1" \
-      --custom-model-id "${model_name}" \
+      --custom-model-id "${ctx_tag}" \
       --custom-compatibility openai \
       --flow quickstart \
       --skip-channels \
@@ -234,28 +300,21 @@ module_register() {
     return 1
   fi
 
-  # Confirmed 2026-08-18: OpenClaw's default tool profile ("coding") puts a
-  # full tool/function-calling schema in every request's system prompt,
-  # which alone runs ~18K tokens. Ollama loads this model with a 4096-token
-  # context window by default, so every real agent request was hard-failing
-  # with "request (18076 tokens) exceeds the available context size (4096
-  # tokens)" (visible as repeated 400s in `docker compose logs ollama`) —
-  # the run never even reached generation. Raising Ollama's context window
-  # is not a real fix on this hardware: prompt-eval on a CPU-only, ~12GB RAM
-  # host runs well under 30 tokens/sec, so evaluating an 18K-token prompt
-  # would take on the order of 10 minutes before any reply starts, and the
-  # KV-cache RAM cost scales with context size too. The actual fix is the
-  # same one tinyllama's module already applies: scope `tools.byProvider` to
-  # this provider/model only (deny all tools) so the huge tool-schema
-  # preamble is never sent to it, leaving only the real conversation in the
-  # prompt. This does mean this model can't call tools/skills — acceptable
-  # for a small local fallback model; the OAuth/API-key providers keep full
-  # tool access via the untouched global tools.profile.
-  log_info "[qwen3-4b-instruct] Disabling tool-calling for ${CUSTOM_PROVIDER_ID}/${model_name} (the resulting tool-schema prompt is too large for this model's context window on this hardware)..."
+  # Denies all tools for this provider/model on top of the larger num_ctx
+  # baked into ${ctx_tag} — see the file header for the full story
+  # (OpenClaw's default tool profile alone added ~18K tokens of
+  # tool/function-calling schema to every request; even after cutting that
+  # out, ~7.4K tokens of base system prompt still didn't fit in Ollama's
+  # 4096-token default, which is why ${ctx_tag} exists at all). Kept even
+  # with more headroom now available, since this model's tool-calling
+  # reliability is not the point of a small local fallback model; the
+  # OAuth/API-key providers keep full tool access via the untouched global
+  # tools.profile.
+  log_info "[qwen3-4b-instruct] Disabling tool-calling for ${CUSTOM_PROVIDER_ID}/${ctx_tag} (kept small and predictable; ${ctx_tag}'s larger num_ctx is there for conversation history, not tool schemas)..."
   if ! compose_cmd exec -T openclaw openclaw config set tools.byProvider \
-      "{\"${CUSTOM_PROVIDER_ID}/${model_name}\":{\"profile\":\"minimal\",\"deny\":[\"*\"]}}" \
+      "{\"${CUSTOM_PROVIDER_ID}/${ctx_tag}\":{\"profile\":\"minimal\",\"deny\":[\"*\"]}}" \
       --strict-json --merge >/dev/null 2>&1; then
-    log_error "[qwen3-4b-instruct] Failed to set tools.byProvider for ${CUSTOM_PROVIDER_ID}/${model_name}."
+    log_error "[qwen3-4b-instruct] Failed to set tools.byProvider for ${CUSTOM_PROVIDER_ID}/${ctx_tag}."
     return 1
   fi
 
@@ -303,13 +362,21 @@ module_register() {
 #
 module_validate() {
   model_name="$(qwen3_4b_instruct_model)"
+  ctx_tag="$(qwen3_4b_instruct_ctx_tag)"
 
-  log_info "[qwen3-4b-instruct] Validating model availability..."
-  if ! compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "qwen3"; then
+  log_info "[qwen3-4b-instruct] Validating base model availability..."
+  if ! compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "${model_name}"; then
     log_error "[qwen3-4b-instruct] ${model_name} not found in Ollama after provisioning."
     return 1
   fi
   log_info "[qwen3-4b-instruct] ${model_name} is available in Ollama."
+
+  log_info "[qwen3-4b-instruct] Validating derived context-window tag availability..."
+  if ! compose_cmd exec -T "${OLLAMA_SERVICE}" ollama list 2>/dev/null | grep -qi "${ctx_tag}"; then
+    log_error "[qwen3-4b-instruct] ${ctx_tag} not found in Ollama — the derived num_ctx tag was not built (or was removed) after provisioning."
+    return 1
+  fi
+  log_info "[qwen3-4b-instruct] ${ctx_tag} is available in Ollama."
 
   log_info "[qwen3-4b-instruct] Validating openclaw is healthy..."
   if ! openclaw_is_healthy; then
@@ -352,8 +419,9 @@ module_validate() {
 }
 
 #
-# Removes the qwen3:4b-instruct model from Ollama AND deregisters the
-# '${CUSTOM_PROVIDER_ID}' provider entry from OpenClaw's config (confirmed
+# Removes both the derived num_ctx tag and the base qwen3:4b-instruct model
+# from Ollama, AND deregisters the '${CUSTOM_PROVIDER_ID}' provider entry
+# from OpenClaw's config (confirmed
 # path: models.providers.<id>, via `openclaw config unset` — verified
 # 2026-08-18 against a real stack with `openclaw config get
 # models.providers`). Does not touch the "ollama" module itself, its data
@@ -370,6 +438,15 @@ module_validate() {
 #
 module_remove() {
   model_name="$(qwen3_4b_instruct_model)"
+  ctx_tag="$(qwen3_4b_instruct_ctx_tag)"
+
+  # Remove the derived tag first (it's the one Ollama built FROM the base
+  # tag — removing the base first would still leave the derived tag's own
+  # blob references dangling until it's removed too, so this order just
+  # keeps `ollama list` clean at every step rather than relying on GC order).
+  log_info "[qwen3-4b-instruct] Removing ${ctx_tag} from Ollama..."
+  compose_cmd exec -T "${OLLAMA_SERVICE}" ollama rm "${ctx_tag}" 2>/dev/null || log_warn "[qwen3-4b-instruct] Could not remove ${ctx_tag} (is the 'ollama' module still running?)."
+
   log_info "[qwen3-4b-instruct] Removing ${model_name} from Ollama..."
   compose_cmd exec -T "${OLLAMA_SERVICE}" ollama rm "${model_name}" 2>/dev/null || log_warn "[qwen3-4b-instruct] Could not remove ${model_name} (is the 'ollama' module still running?)."
 

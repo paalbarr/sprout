@@ -2,6 +2,8 @@ ollama:
   image: ollama/ollama:${OLLAMA_VERSION:-latest}
   container_name: sprout-ollama
   restart: unless-stopped
+  environment:
+    - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-16384}
 
   volumes:
     - ./modules/ollama/data:/root/.ollama

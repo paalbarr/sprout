@@ -27,14 +27,14 @@
 
 **Sprout** is a free, open-source, lightweight deployment toolkit for Local AI. Set up your environment quickly and safely.
 
-Built on a **modular, plug-and-play architecture**, Sprout enables one-command deployment of Local AI stacks on ARM and x86 devices. Install OpenClaw, Ollama, Open WebUI and other Docker-based services through configuration instead of complex provisioning, creating a lightweight, extensible platform ready for edge computing, homelabs and self-hosted AI.
+Built on a **modular, plug-and-play architecture**, Sprout enables one-command deployment of Local AI stacks. Install OpenClaw, Ollama, Open WebUI and other Docker-based services through configuration instead of complex provisioning, creating a lightweight, extensible platform ready for edge computing, homelabs and self-hosted AI.
 
 |                                      |                                                                        |
 | ------------------------------------ | ---------------------------------------------------------------------- |
 | 🔓 **100% Open Source**              | No licensing fees, no feature locks, full source code access           |
 | 🐳 **Docker Native**                 | Ready to use with zero configuration                                   |
 | 🧩 **Official Components**           | Only official images for security and realiability                     |
-| 🏎 **Lightweight and Optimized**     | Configured to operate with minimal resources in a personal environment |
+| 🏎 **Lightweight and Optimized**     | Configured to operate with minimal resources in a home labs environment |
 
 ℹ️ **Release status:**
 
@@ -60,21 +60,9 @@ No manual Docker Compose editing is required.
 
 ### Supported platforms
 
-Sprout has been designed for both ARM and x86 architectures.
+Sprout has been designed for both ARM and x86 architectures. You can run Sprout on a Raspberry Pi 5 or similar architectures. If you want to run models locally, you must have access to GPU computing resources.
 
-| Platform | Status |
-|----------|--------|
-| Raspberry Pi 4 (4 GB+) | ✅ Recommended |
-| Raspberry Pi 5 | ✅ Recommended |
-| Intel NUC | ✅ Supported |
-| Mini PC (Intel/AMD) | ✅ Supported |
-| macOS (Apple Silicon) | ✅ Supported |
-| macOS (Intel) | ✅ Supported |
-| WSL2 | ✅ Supported |
-
----
-
-### Minimum hardware
+#### Minimum hardware
 
 Recommended minimum:
 
@@ -82,10 +70,14 @@ Recommended minimum:
 - 4 GB RAM
 - 10 GB free disk space
 
-Recommended for LLM usage:
+Recommended for Frontier LLM usage:
 
 - 8 GB RAM or more
 - SSD storage
+
+Recommended for Local LLM models:
+
+- 4 GB VRAM or more
 
 ---
 
